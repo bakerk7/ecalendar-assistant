@@ -1,0 +1,8 @@
+# your eCalendar token / device / category ids -- never commit these
+.env
+.env.*
+*.plist
+
+__pycache__/
+*.pyc
+.DS_Store
