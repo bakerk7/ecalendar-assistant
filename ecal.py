@@ -14,31 +14,36 @@ Auth token resolution order:
 The token has no expiry. It is a full-account bearer credential (read+write every
 note, event, task on the account) -- keep it in a secret store, never in a repo.
 """
-import json, os, subprocess, tempfile, time, urllib.request, urllib.error
+import http.client, json, os, subprocess, tempfile, time, urllib.request, urllib.error
 from datetime import datetime, date, timedelta
 
-DEVICE = os.environ.get("ECALENDAR_DEVICE", "")
-INSTANCE = os.environ.get("ECALENDAR_INSTANCE", "")   # the app's clientInstanceId (Notes only)
 BASE = "https://api.cd.myecalendar.com"
 PLIST = os.path.expanduser(
     "~/Library/Containers/com.fujia.ecalendar/Data/Library/Preferences/com.fujia.ecalendar.plist")
 
-# IANA zone your account is actually in -- NOT necessarily US-Eastern. The app sends
-# this as a header and as a numeric UTC offset with every write; get it wrong and
-# events/meals can land displayed an hour off. Default kept as Eastern for anyone
-# upgrading from before this was configurable. See SETUP.md for how to check yours
-# (hint: the addZone/zone value in any of your own captured requests tells you).
-TIMEZONE = os.environ.get("ECALENDAR_TIMEZONE", "America/New_York")
 
 # calendar category (a.k.a. profile) ids -- set ECALENDAR_CATEGORIES to a JSON object,
 # e.g. {"family": "123...", "kid_a": "456...", "kid_b": "789..."}. See SETUP.md.
-CATEGORIES = json.loads(os.environ.get("ECALENDAR_CATEGORIES", "{}"))
-DEFAULT_CATEGORY = os.environ.get("ECALENDAR_DEFAULT_CATEGORY") or next(iter(CATEGORIES.values()), None)
-
 # meal category ids (Breakfast/Lunch/Dinner/Snack, as configured in the app's Meals
 # tab) -- set ECALENDAR_MEAL_CATEGORIES to a JSON object, e.g.
 # {"breakfast": "123...", "lunch": "456..."}. See SETUP.md.
-MEAL_CATEGORIES = json.loads(os.environ.get("ECALENDAR_MEAL_CATEGORIES", "{}"))
+
+def _refresh_from_env():
+    """(Re)read module config from the environment. Runs once at import; also
+    called by load_auth_file() so `import ecal; ecal.load_auth_file()` works."""
+    global DEVICE, INSTANCE, TIMEZONE, CATEGORIES, DEFAULT_CATEGORY, MEAL_CATEGORIES
+    DEVICE = os.environ.get("ECALENDAR_DEVICE", "")
+    INSTANCE = os.environ.get("ECALENDAR_INSTANCE", "")  # the app's clientInstanceId (Notes only)
+    # IANA zone your account is actually in -- NOT necessarily US-Eastern. The app sends
+    # this as a header and as a numeric UTC offset with every write; get it wrong and
+    # events/meals can land displayed an hour off. See SETUP.md for how to check yours
+    # (hint: the addZone/zone value in any of your own captured requests tells you).
+    TIMEZONE = os.environ.get("ECALENDAR_TIMEZONE", "America/New_York")
+    CATEGORIES = json.loads(os.environ.get("ECALENDAR_CATEGORIES", "{}"))
+    DEFAULT_CATEGORY = os.environ.get("ECALENDAR_DEFAULT_CATEGORY") or next(iter(CATEGORIES.values()), None)
+    MEAL_CATEGORIES = json.loads(os.environ.get("ECALENDAR_MEAL_CATEGORIES", "{}"))
+
+_refresh_from_env()
 
 # recurrenceUnit values for eventRecurrenceRule
 DAILY, WEEKLY, MONTHLY, YEARLY = 1, 2, 3, 4
@@ -61,6 +66,27 @@ def token():
     with open(PLIST, "rb") as f:
         d = plistlib.load(f)
     return json.loads(d["flutter.user"])["token"]
+
+
+def load_auth_file(path="./ECALENDAR_INFO.bin"):
+    """Parse a KEY=value auth file into os.environ and refresh module config,
+    so `import ecal; ecal.load_auth_file()` just works. Pass the path to your
+    own file if it lives elsewhere.
+
+    Handles the backslash-escaped JSON in ECALENDAR_CATEGORIES -- do NOT
+    `source` this file with bash, bash quote-removal mangles it.
+    """
+    p = os.path.expanduser(path)
+    with open(p) as f:
+        for line in f:
+            line = line.strip()
+            if not line or "=" not in line or line.startswith("#"):
+                continue
+            k, v = line.split("=", 1)
+            if k == "ECALENDAR_CATEGORIES":
+                v = v.replace('\\"', '"')
+            os.environ[k] = v
+    _refresh_from_env()
 
 
 # standard/daylight UTC-offset pairs for the zoneinfo-less fallback below. Add yours
@@ -103,17 +129,62 @@ def _headers(tok):
 
 def api(path, body, tok=None):
     tok = tok or token()
-    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(),
-                                 headers=_headers(tok), method="POST")
+    data = json.dumps(body).encode()
+    headers = _headers(tok)
+    req = urllib.request.Request(BASE + path, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=40) as r:
-            raw = r.read()
-            if r.headers.get("Content-Encoding") == "gzip":
-                import gzip
-                raw = gzip.decompress(raw)
-            return json.loads(raw.decode())
+        try:
+            with urllib.request.urlopen(req, timeout=40) as r:
+                raw = r.read()
+        except (http.client.IncompleteRead, http.client.RemoteDisconnected,
+                ConnectionResetError) as e:
+            # The event/task list endpoints sometimes send truncated chunked
+            # responses that urllib can't finish reading. curl handles the same
+            # response fine, so retry reads (only reads -- never re-fire a
+            # write, that would create duplicates) through curl.
+            if not _is_read_path(path):
+                raise
+            raw = _curl_post(path, data, headers)
+        if _looks_gzipped(raw):
+            import gzip
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode())
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"{path} -> {e.code}: {e.read().decode()[:400]}")
+
+
+def _is_read_path(path):
+    p = path.lower()
+    return "/list" in p or "/sync/" in p or p.endswith("/detail")
+
+
+def _looks_gzipped(raw):
+    return raw[:2] == b"\x1f\x8b"
+
+
+def _curl_post(path, data, headers, timeout=60):
+    """POST via curl (temp files keep the token out of argv). Fallback for
+    read endpoints when urllib chokes on a truncated chunked response."""
+    hf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".hdr")
+    bf = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".json")
+    try:
+        hf.write("\n".join(f"{k}: {v}" for k, v in headers.items()))
+        hf.close()
+        bf.write(data)
+        bf.close()
+        p = subprocess.run(
+            ["curl", "-sS", "--max-time", str(timeout), "-X", "POST",
+             BASE + path, "-H", "@" + hf.name, "--data", "@" + bf.name],
+            capture_output=True, timeout=timeout + 30)
+        if p.returncode != 0:
+            raise RuntimeError(f"curl fallback for {path} failed: {p.stderr.decode()[:200]}")
+        return p.stdout
+    finally:
+        for f in (hf.name, bf.name):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
 
 
 def _iso_now():

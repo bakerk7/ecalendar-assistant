@@ -191,6 +191,10 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
 
 - `/app/event/list` **rejects any range narrower than 7 days** (HTTP 200 body
   `code:500`). `list_events` fetches a widened window and filters locally.
+- The list endpoints sometimes send **truncated chunked responses** that Python's
+  urllib can't finish reading (`IncompleteRead`), while writes still succeed.
+  `api()` automatically retries **reads** through curl in that case (writes are
+  never re-fired, to avoid duplicates).
 - `/app/event/add` returns `{"code":200,"data":null}` — **no event id**. Dedupe via
   `find_duplicate` / `events_on`.
 - Event times: `create_event` sends local wall time + a `zone` offset (auto-picked per
