@@ -159,6 +159,26 @@ ecal.events_on("2026-09-11")
 ecal.list_events("2026-09-07", "2026-09-13")
 ecal.find_duplicate("Picture Day", "2026-10-03")     # -> row or None (dedupe before create)
 
+# batch create  (parallel; no batch endpoint exists server-side). Each spec is a
+# dict of create_event kwargs. Returns [(True, None), (False, "err..."), ...] in
+# input order. A failed create may still have landed -- check find_duplicate()
+# before retrying failures.
+ecal.create_events([
+    {"title": "Red Day", "start": "2026-09-21", "all_day": True, "category": "kid_a"},
+    {"title": "Orange Day", "start": "2026-09-22", "all_day": True, "category": "kid_a"},
+])
+
+# --- local cache (ecal_cache.py) ---
+# sqlite mirror of the event list: instant reads, immune to the API's truncated
+# responses. Writes go through ecal, then re-sync the affected window.
+import ecal_cache as cache
+cache.sync()                                         # back 30d / forward 120d
+cache.events_on("2026-09-11")                        # cached read
+cache.find_duplicate("Picture Day", "2026-10-03")    # cached dedupe
+cache.create_events([{...}, {...}])                  # batch write + re-sync
+# Keep fresh: run cache.sync() periodically (cron) or before a batch of reads.
+# DB: ~/.ecalendar/cache.db (override with db_path=).
+
 # edit  (all fields, like create; needs the eventId)
 ecal.edit_event(event_id, "Dentist (moved)", "2026-03-14 16:00:00", category="kid_a")
 #   recurring instance: also pass update_method (0 this / 1 all / 2 this+future) +
@@ -193,8 +213,10 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
   `code:500`). `list_events` fetches a widened window and filters locally.
 - The list endpoints sometimes send **truncated chunked responses** that Python's
   urllib can't finish reading (`IncompleteRead`), while writes still succeed.
-  `api()` automatically retries **reads** through curl in that case (writes are
-  never re-fired, to avoid duplicates).
+  `api()` automatically retries **idempotent calls** (reads, edits, deletes)
+  through curl in that case. **Creates (`/add`) are never re-fired** -- a failed
+  create may still have landed, so verify with `find_duplicate()` before
+  retrying.
 - `/app/event/add` returns `{"code":200,"data":null}` — **no event id**. Dedupe via
   `find_duplicate` / `events_on`.
 - Event times: `create_event` sends local wall time + a `zone` offset (auto-picked per
