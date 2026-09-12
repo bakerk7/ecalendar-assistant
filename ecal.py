@@ -138,11 +138,13 @@ def api(path, body, tok=None):
                 raw = r.read()
         except (http.client.IncompleteRead, http.client.RemoteDisconnected,
                 ConnectionResetError) as e:
-            # The event/task list endpoints sometimes send truncated chunked
-            # responses that urllib can't finish reading. curl handles the same
-            # response fine, so retry reads (only reads -- never re-fire a
-            # write, that would create duplicates) through curl.
-            if not _is_read_path(path):
+            # The API sometimes sends truncated chunked responses that urllib
+            # can't finish reading. curl handles the same response fine, so
+            # retry through curl -- except for creates (/add): a create that
+            # raised may still have landed server-side, and re-firing it
+            # would make a duplicate. Callers must verify with
+            # find_duplicate() before retrying a failed create.
+            if not _retry_safe(path):
                 raise
             raw = _curl_post(path, data, headers)
         if _looks_gzipped(raw):
@@ -153,9 +155,11 @@ def api(path, body, tok=None):
         raise RuntimeError(f"{path} -> {e.code}: {e.read().decode()[:400]}")
 
 
-def _is_read_path(path):
-    p = path.lower()
-    return "/list" in p or "/sync/" in p or p.endswith("/detail")
+def _retry_safe(path):
+    """Reads, edits and deletes are idempotent -- safe to re-fire through curl
+    when urllib chokes on a truncated response. Creates (/add) are not: a
+    failed create may still have landed server-side."""
+    return "/add" not in path.lower()
 
 
 def _looks_gzipped(raw):
@@ -164,7 +168,7 @@ def _looks_gzipped(raw):
 
 def _curl_post(path, data, headers, timeout=60):
     """POST via curl (temp files keep the token out of argv). Fallback for
-    read endpoints when urllib chokes on a truncated chunked response."""
+    idempotent calls when urllib chokes on a truncated chunked response."""
     hf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".hdr")
     bf = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".json")
     try:
@@ -318,6 +322,30 @@ def create_event(title, start, end=None, *, all_day=False, description="",
     if r.get("code") != 200:
         raise RuntimeError(f"event/add failed: {r}")
     return r
+
+
+def create_events(specs, max_workers=4):
+    """Create many events in parallel (the API has no batch endpoint).
+
+    specs: a list of dicts, each one matching create_event's kwargs, e.g.
+        {"title": "Dentist", "start": "2026-09-20 14:00:00", "category": "family"}
+
+    Runs up to max_workers creates concurrently and returns a results list in
+    input order: [(True, None), (False, "RemoteDisconnected: ..."), ...].
+    Note: a create that raises a network error may still have landed
+    server-side -- verify with find_duplicate() before retrying failures.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _one(spec):
+        try:
+            create_event(**spec)
+            return (True, None)
+        except Exception as e:
+            return (False, f"{type(e).__name__}: {e}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        return list(ex.map(_one, specs))
 
 
 def edit_event(event_id, title, start, end=None, *, all_day=False, description="",
