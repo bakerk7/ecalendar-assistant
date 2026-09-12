@@ -33,18 +33,42 @@ def _db(db_path=None):
     p = os.path.expanduser(db_path or DEFAULT_DB)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     cx = sqlite3.connect(p)
-    cx.execute("""CREATE TABLE IF NOT EXISTS events (
-        eventId TEXT NOT NULL,
+    cols = [r[1] for r in cx.execute("PRAGMA table_info(events)").fetchall()]
+    if cols and "key" not in cols:
+        # pre-stable-key schema: eventIds from synced calendars churn every
+        # request, so the old (eventId, startDatetime) key was wrong. A mirror
+        # is disposable -- rebuild it.
+        cx.execute("DROP TABLE events")
+        cols = []
+    if not cols:
+        cx.execute("""CREATE TABLE events (
+        key TEXT PRIMARY KEY,
+        eventId TEXT,
         startDatetime TEXT NOT NULL,
         title TEXT,
         endDatetime TEXT,
-        categoryId TEXT,
+        categoryIds TEXT,
+        syncCalendarId TEXT,
         allDay INTEGER,
-        raw TEXT,
-        PRIMARY KEY (eventId, startDatetime))""")
+        raw TEXT)""")
     cx.execute("CREATE INDEX IF NOT EXISTS idx_events_start ON events(startDatetime)")
     cx.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
     return cx
+
+
+def _stable_key(r):
+    """Identity that survives across API calls.
+
+    App-native events have stable eventIds. Events from synced external
+    calendars (Google/iCloud) get a FRESH ephemeral eventId on every list
+    request, so they are keyed by (sync calendar, title, start) instead.
+    """
+    sync_id = r.get("syncCalendarId") or ""
+    title = r.get("title") or ""
+    sd = r.get("startDatetime") or ""
+    if sync_id:
+        return f"s|{sync_id}|{title}|{sd}"
+    return f"e|{r.get('eventId')}|{sd}"
 
 
 def _row_to_dict(row):
@@ -68,29 +92,28 @@ def sync(days_back=DEFAULT_BACK, days_forward=DEFAULT_FORWARD, db_path=None):
     while cur <= hi:
         wend = min(cur + timedelta(days=_CHUNK - 1), hi)
         for r in ecal.list_events(cur.isoformat(), wend.isoformat()):
-            eid = str(r.get("eventId"))
-            sd = r.get("startDatetime") or ""
-            seen.add((eid, sd))
+            key = _stable_key(r)
+            seen.add(key)
             cx.execute(
                 "INSERT OR REPLACE INTO events "
-                "(eventId, startDatetime, title, endDatetime, categoryId, allDay, raw)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (eid, sd, r.get("title"), r.get("endDatetime"),
-                 str(r.get("userCalendarCategoryId") or r.get("categoryId") or ""),
+                "(key, eventId, startDatetime, title, endDatetime, categoryIds,"
+                " syncCalendarId, allDay, raw)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (key, str(r.get("eventId")), r.get("startDatetime") or "",
+                 r.get("title"), r.get("endDatetime"),
+                 ",".join(str(x) for x in (r.get("userCalendarCategoryIds") or [])),
+                 r.get("syncCalendarId") or "",
                  1 if r.get("allDay") else 0, json.dumps(r)))
             upserted += 1
         cur = wend + timedelta(days=1)
     # drop rows in range that the server no longer returns (deleted events)
-    placeholders = ",".join("?" for _ in seen)
     deleted = 0
-    if seen:
-        cur = cx.execute(
-            "SELECT eventId, startDatetime FROM events "
+    for (k,) in cx.execute(
+            "SELECT key FROM events "
             "WHERE date(substr(startDatetime,1,10)) BETWEEN ? AND ?",
-            (lo.isoformat(), hi.isoformat()))
-        stale = [(e, s) for e, s in cur.fetchall() if (e, s) not in seen]
-        for e, s in stale:
-            cx.execute("DELETE FROM events WHERE eventId=? AND startDatetime=?", (e, s))
+            (lo.isoformat(), hi.isoformat())).fetchall():
+        if k not in seen:
+            cx.execute("DELETE FROM events WHERE key=?", (k,))
             deleted += 1
     cx.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('last_sync', ?)",
                (datetime.now().isoformat(timespec="seconds"),))

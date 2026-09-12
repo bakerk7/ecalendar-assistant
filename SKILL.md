@@ -217,6 +217,12 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
   through curl in that case. **Creates (`/add`) are never re-fired** -- a failed
   create may still have landed, so verify with `find_duplicate()` before
   retrying.
+- **Synced external calendars (Google/iCloud): the API returns a FRESH ephemeral
+  `eventId` for those events on EVERY list request** (verified: three identical
+  calls, three different ids). Never use a listed `eventId` for a synced event
+  across calls, and never key a local mirror on it -- key synced events by
+  `(syncCalendarId, title, startDatetime)` instead (`ecal_cache._stable_key`
+  does this). App-native event ids are stable.
 - `/app/event/add` returns `{"code":200,"data":null}` — **no event id**. Dedupe via
   `find_duplicate` / `events_on`.
 - Event times: `create_event` sends local wall time + a `zone` offset (auto-picked per
