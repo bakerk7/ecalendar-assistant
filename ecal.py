@@ -176,11 +176,17 @@ def api(path, body, tok=None, method="POST"):
         raise RuntimeError(f"{path} -> {e.code}: {e.read().decode()[:400]}")
 
 
+# creates whose path doesn't contain "/add"
+_CREATE_PATHS = {"/app/task", "/app/v2/recipe", "/app/mealplan"}
+
+
 def _retry_safe(path):
     """Reads, edits and deletes are idempotent -- safe to re-fire through curl
-    when urllib chokes on a truncated response. Creates (/add) are not: a
-    failed create may still have landed server-side."""
-    return "/add" not in path.lower()
+    when urllib chokes on a truncated response. Creates (/add, plus the bare
+    create paths above) are not: a failed create may still have landed
+    server-side."""
+    p = path.lower().split("?")[0].rstrip("/")
+    return "/add" not in p and p not in _CREATE_PATHS
 
 
 def _looks_gzipped(raw):
@@ -468,6 +474,77 @@ def create_task(title, *, category, due=None, stars=0, emoji="MEMO", description
     if r.get("code") != 200:
         raise RuntimeError(f"task/add failed: {r}")
     return r.get("data", {}).get("eventIds", [])
+
+
+# routinePeriods: time-of-day slots. 1 and 3 verified from app traffic; 2 inferred.
+ROUTINE_PERIODS = {"morning": 1, "afternoon": 2, "evening": 3}
+
+
+def create_routine(title, *, category, periods=("morning",), start=None, stars=0,
+                   emoji=None, description="", timer_seconds=None, tok=None):
+    """Create a Routine: a daily task pinned to one or more times of day, in the
+    Tasks tab. The server makes one independent recurring series per period.
+
+    category     : who it's for -- a key from ECALENDAR_CATEGORIES or a raw id.
+    periods      : any of "morning" (00:00-12:00), "afternoon" (12:00-18:00, not yet
+                   verified), "evening" (18:00-24:00), or their ints 1/2/3.
+    start        : 'YYYY-MM-DD' the routine starts. Defaults to today.
+    stars        : reward stars per completion. Defaults to 0.
+    emoji        : an emoji name, or None for no icon (what the app sends).
+    timer_seconds: optional focus-timer length.
+
+    Returns the new eventIds, one per period (each is its own series root, so
+    delete_task(event_id, series=True) should remove that period's routine --
+    routine deletes haven't been captured yet).
+
+    Request (captured from the app 2026-09-13, periods morning + evening):
+      POST /app/task
+      {"deviceId": "<DEVICE_ID>", "title": "...", "eventType": "2", "isRecurring": 1,
+       "userCalendarCategoryIds": ["<CATEGORY_ID>"], "zone": -5, "emoji": null,
+       "taskType": 0, "description": "", "taskTimeoutPenalty": 0,
+       "taskTimeoutPenaltyStarPercent": "0.00", "taskTimeoutPenaltyStarCount": 0,
+       "taskMode": 1, "routinePeriods": [1, 3], "routineStartDate": "2026-09-13",
+       "timerDurationSeconds": null, "starCount": 0, "priority": "0",
+       "eventRecurrenceRule": {"recurrenceUnit": 1, "recurrenceValue": "1",
+         "weekDays": null, "recurrenceMonthOption": null, "eventRecurrenceRulesId": 0}}
+    Response:
+      {"code": 200, "msg": null,
+       "data": {"createdCount": 2, "eventIds": ["<ID_MORNING>", "<ID_EVENING>"]}}
+    """
+    _require_setup()
+    cat = resolve_category(category)
+    if isinstance(cat, list):
+        cat = cat[0]
+    if isinstance(periods, (str, int)):
+        periods = [periods]
+    slots = []
+    for p in periods:
+        n = ROUTINE_PERIODS.get(p.strip().lower()) if isinstance(p, str) else p
+        if n not in (1, 2, 3):
+            raise ValueError(f"unknown routine period {p!r} -- use {sorted(ROUTINE_PERIODS)}")
+        if n not in slots:
+            slots.append(n)
+    if not slots:
+        raise ValueError("create_routine needs at least one period")
+    d = (start or date.today().isoformat())[:10]
+    body = {
+        "deviceId": str(DEVICE), "title": title, "description": description,
+        "eventType": "2", "taskType": 0, "taskMode": 1,
+        "routinePeriods": slots, "routineStartDate": d,
+        "isRecurring": 1,
+        "eventRecurrenceRule": {"recurrenceUnit": DAILY, "recurrenceValue": "1",
+                                "weekDays": None, "recurrenceMonthOption": None,
+                                "eventRecurrenceRulesId": 0},
+        "userCalendarCategoryIds": [cat], "zone": tz_offset(d),
+        "emoji": emoji or None, "starCount": max(0, int(stars)), "priority": "0",
+        "timerDurationSeconds": timer_seconds,
+        "taskTimeoutPenalty": 0, "taskTimeoutPenaltyStarPercent": "0.00",
+        "taskTimeoutPenaltyStarCount": 0,
+    }
+    r = api("/app/task", body, tok)
+    if r.get("code") != 200:
+        raise RuntimeError(f"routine add failed: {r}")
+    return (r.get("data") or {}).get("eventIds", [])
 
 
 def list_tasks(day=None, categories=None, tok=None):

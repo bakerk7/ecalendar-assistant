@@ -235,6 +235,7 @@ On `/app/task/list` each routine instance comes back as a row with `taskMode: 1`
 window, `eventRecurrenceRule.recurrenceRuleDescription: "Daily"`,
 `deleteMethodSet: [1,2]`, and `updateMethodSet: [1]`. A one-off chore has
 `deleteMethodSet: null`. Editing and deleting routines weren't captured.
+`ecal.create_routine()` sends this body.
 
 **Read** — `POST /app/task/list`:
 ```json

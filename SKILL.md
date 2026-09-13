@@ -197,6 +197,8 @@ ecal.create_anniversary("Our anniversary", "2020-10-22", category="family", pinn
 # --- tasks / chores  (Tasks tab, assigned to a person, optional star rewards) ---
 ecal.create_task("Wash dishes", category="kid_a", stars=2, emoji="BOWL WITH SPOON")
 ecal.create_task("Math homework", category="kid_a", emoji="MEMO")  # stars default to 0
+ecal.create_routine("Brush teeth", category="kid_a", periods=["morning", "evening"])
+#   daily, pinned to time of day; returns one eventId per period
 ecal.create_task("Feed the dog", category="kid_b", emoji="DOG FACE",
                  recur=ecal.recurrence(ecal.DAILY))            # repeating chore
 ecal.list_tasks("2026-09-11", categories=["kid_a", "kid_b"])   # -> rows
@@ -240,7 +242,7 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
 - Notes (create/update/delete/attach) need `ECALENDAR_INSTANCE`; events/tasks don't.
 - **Task vs event:** a **task/chore** (`create_task`) is a to-do assigned to a person,
   in the Tasks tab — "give kid_a a chore to…". A dated **deadline or appointment** with
-  no assignee is an **event** (`create_event`). `create_task`'s `emoji` must be an emoji name or `None`; an empty string is rejected. A **routine** (a daily task pinned to morning / afternoon / evening) is a separate task mode; see `ecalendar-api.md` → Routines.
+  no assignee is an **event** (`create_event`). `create_task`'s `emoji` must be an emoji name or `None`; an empty string is rejected. A **routine** (a daily task pinned to morning / afternoon / evening) is a separate task mode; use `create_routine` when someone asks for a morning/evening routine or a daily "every morning" task for a kid.
 - **Task stars default to 0.** Only pass `stars=` when the user asks for a reward
   ("2 stars"). When you report tasks you created without stars, say they have **no
   stars** and that the user can ask for them. Things like homework shouldn't earn stars.

@@ -168,8 +168,12 @@ appointment with no assignee is an **event** instead — use `create_event`.
 
 A **routine** is a task pinned to a time of day (morning / afternoon / evening) that
 repeats daily. The app creates one with `taskMode: 1` and `routinePeriods`, and gets back
-one series per period. `ecal.py` doesn't wrap routines yet; the request is documented in
-`ecalendar-api.md` → Routines.
+one series per period:
+
+```python
+ecal.create_routine("Brush teeth", category="kid_a", periods=["morning", "evening"])
+#   -> [morning_event_id, evening_event_id]; delete_task(id, series=True) should remove one (not yet verified)
+```
 
 ### Account & summary (read-only)
 
