@@ -103,7 +103,7 @@ and nothing belongs in the repo.
 
 | Variable | Required | What it is |
 |---|---|---|
-| `ECALENDAR_TOKEN` | ✅ | Bearer token for your account. Full read/write to every event, note, task, and meal on the account — treat it as a password. No expiry; only changes if you sign out and back in. |
+| `ECALENDAR_TOKEN` | ✅ | Bearer token for your account. Full read/write to every event, note, task, and meal on the account — treat it as a password. Doesn't expire on a timer, but **any new sign-in to the account (on any device) replaces it** — the old one then fails with `Account logged in on another device`. |
 | `ECALENDAR_DEVICE` | ✅ | The app's numeric `deviceId`, sent with every request. |
 | `ECALENDAR_INSTANCE` | Notes only | The app's `clientInstanceId` (a UUID). |
 | `ECALENDAR_CATEGORIES` | ✅ | JSON mapping short names to your calendar category ids, e.g. `{"family":"123...","kid_a":"456..."}`. |
@@ -165,6 +165,15 @@ ecal.delete_task(task_event_id)                                 # series=True if
 A **task** is a chore assigned to a person, living in the app's Tasks tab. Stars
 default to **0** (no reward); pass `stars=` to give one. A dated deadline or
 appointment with no assignee is an **event** instead — use `create_event`.
+
+### Account & summary (read-only)
+
+```python
+ecal.whoami()                  # signed-in user -- quick "is the token still good?" check
+ecal.family()                  # families + paired devices (e.g. the wall display)
+ecal.summary()                 # today's event / open-task counts, like the app's home screen
+ecal.category_stats()          # each person's star balance + today's task progress
+```
 
 ### Notes
 
@@ -244,6 +253,9 @@ recurrence rules and the task model — is in [`ecalendar-api.md`](ecalendar-api
 - Deleting a whole recurring series needs the series-root `eventId`
   (`eventRecurrenceRule.eventRecurrenceRulesId` / `routineSourceEventId` on a row).
 - Notes need `ECALENDAR_INSTANCE`; events, tasks, and meals don't.
+- **A new sign-in anywhere replaces the token.** The old one starts failing with
+  `code: 401` "Account logged in on another device" (inside an HTTP 200). `ecal.py`
+  raises `TokenReplacedError`; refresh `ECALENDAR_TOKEN` (see `SETUP.md`).
 - Recipe names must be unique **account-wide** — see [Meals](#meals-recipes--meal-plan)
   above.
 - `mealPlan/list` **silently omits any meal category disabled in the app's Meals
@@ -268,7 +280,10 @@ every event, note, task, and meal on the account.
 - Keep it in environment variables or a secret store — **never** in a committed file.
 - Use a **private** repo for your own copy.
 - If you capture it with an HTTPS proxy during setup, remove the proxy configuration
-  from the device again once you're done.
+  from the device again once you're done, and delete the capture — if the app signed
+  in while recording, it contains your account **password** in plain text.
+- If the token leaks, change your eCalendar password and sign in again; the new
+  sign-in invalidates the old token.
 
 ## Contributing
 

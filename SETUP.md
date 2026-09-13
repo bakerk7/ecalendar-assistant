@@ -9,7 +9,7 @@ them):
 
 | Variable | What it is |
 |---|---|
-| `ECALENDAR_TOKEN` | Bearer token for your eCalendar account. **Full read/write to every event, note, and task on the account.** Treat it like a password. No expiry — only changes if you sign out and back in. |
+| `ECALENDAR_TOKEN` | Bearer token for your eCalendar account. **Full read/write to every event, note, and task on the account.** Treat it like a password. Doesn't expire on a timer, but **any new sign-in to the account (on any device) replaces it** — the old one then fails with `Account logged in on another device`. |
 | `ECALENDAR_DEVICE` | The numeric `deviceId` the app sends with every request. |
 | `ECALENDAR_INSTANCE` | The app's `clientInstanceId` (a UUID) — only used for Notes. |
 | `ECALENDAR_CATEGORIES` | JSON mapping short names to your calendar category ids, e.g. `{"family":"123","kid_a":"456"}`. |
@@ -64,7 +64,9 @@ such as [Proxyman](https://proxyman.io) or [mitmproxy](https://mitmproxy.org).
    keys: `{"family":"<id>","kid_a":"<id>",...}`.
    *(Do not try to read category ids from an `/app/event/list` response — that endpoint
    returns `userCalendarCategoryIds: null`.)*
-6. **Remove the proxy config from the device when you're done.**
+6. **Remove the proxy config from the device when you're done**, and delete the saved
+   capture. If the app signed in while you were capturing, the `/app/user/login` request
+   has your **password in plain text**.
 
 ---
 
@@ -91,9 +93,17 @@ Start a session in that project and run:
 python3 .claude/skills/ecalendar/ecal.py
 ```
 
-It prints the token source, today's US-Eastern UTC offset, and your events for today.
-If a variable is missing it says which one. If you get a 403 / tunnel error, fix the
-network access setting (Step 4.5).
+It prints the token source and who it's signed in as, today's UTC offset for your
+`ECALENDAR_TIMEZONE`, and your events for today. If a variable is missing it says which
+one. If you get a 403 / tunnel error, fix the network access setting (Step 4.5).
+
+## If it stops working: "Account logged in on another device"
+
+The token doesn't expire on its own, but signing in to eCalendar again — on any phone,
+Mac, or the wall display — issues a new token and invalidates the old one. `ecal.py`
+raises `TokenReplacedError` when that happens. Re-run `extract_ecal_config.py` on a Mac
+signed into the app (or re-capture) and update `ECALENDAR_TOKEN` wherever you set it.
+The device id and category ids don't change.
 
 Then try it for real: *"what's on my calendar next week?"*, then
 *"add a test event tomorrow at 2pm called hello, then delete it."*

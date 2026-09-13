@@ -34,6 +34,10 @@ Quick check: `python3 ecal.py` prints the token source, the current UTC offset f
 configured timezone, and today's events. If setup is incomplete it'll tell you which
 variable is missing.
 
+If a call raises `TokenReplacedError` ("Account logged in on another device"), someone
+signed in to the account again and the token was replaced. Don't retry — tell the user
+the token needs refreshing (`SETUP.md` → "If it stops working").
+
 ## Workflow for "add this to the calendar"
 
 1. **Extract** the event from whatever was given (see parsing notes below). Produce:

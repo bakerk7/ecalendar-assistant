@@ -11,8 +11,11 @@ Auth token resolution order:
   2. the eCalendar macOS app plist  <- automatic if running on the same Mac you're
                                         signed into the app on
 
-The token has no expiry. It is a full-account bearer credential (read+write every
-note, event, task on the account) -- keep it in a secret store, never in a repo.
+The token has no time-based expiry, but any new sign-in to the account (on any
+device) issues a new one and kills the old: calls then come back as
+{"code": 401, "msg": "Account logged in on another device"}, which api() raises as
+TokenReplacedError. It is a full-account bearer credential (read+write every note,
+event, task on the account) -- keep it in a secret store, never in a repo.
 """
 import http.client, json, os, subprocess, tempfile, time, urllib.request, urllib.error
 from datetime import datetime, date, timedelta
@@ -127,11 +130,29 @@ def _headers(tok):
     }
 
 
-def api(path, body, tok=None):
+class TokenReplacedError(RuntimeError):
+    """The token was invalidated -- almost always because someone signed in to the
+    account again (any device), which issues a new token and kills the old one."""
+
+
+def _check_auth(path, r):
+    # Auth failures come back as HTTP 200 with code 401 in the body, e.g.
+    #   {"code": 401, "msg": "Account logged in on another device", "data": null}
+    if isinstance(r, dict) and r.get("code") == 401:
+        raise TokenReplacedError(
+            f"{path} -> 401: {r.get('msg')}. The token is no longer valid -- a newer "
+            "sign-in replaced it. Get the current one (python3 extract_ecal_config.py "
+            "on a Mac signed into eCalendar) and update ECALENDAR_TOKEN.")
+    return r
+
+
+def api(path, body, tok=None, method="POST"):
+    """Call an endpoint. POST sends `body` as JSON; method="GET" ignores `body`
+    (put query parameters in `path`)."""
     tok = tok or token()
-    data = json.dumps(body).encode()
+    data = json.dumps(body).encode() if method == "POST" else None
     headers = _headers(tok)
-    req = urllib.request.Request(BASE + path, data=data, headers=headers, method="POST")
+    req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
     try:
         try:
             with urllib.request.urlopen(req, timeout=40) as r:
@@ -150,7 +171,7 @@ def api(path, body, tok=None):
         if _looks_gzipped(raw):
             import gzip
             raw = gzip.decompress(raw)
-        return json.loads(raw.decode())
+        return _check_auth(path, json.loads(raw.decode()))
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"{path} -> {e.code}: {e.read().decode()[:400]}")
 
@@ -167,18 +188,20 @@ def _looks_gzipped(raw):
 
 
 def _curl_post(path, data, headers, timeout=60):
-    """POST via curl (temp files keep the token out of argv). Fallback for
-    idempotent calls when urllib chokes on a truncated chunked response."""
+    """POST via curl (temp files keep the token out of argv), or GET when `data`
+    is None. Fallback for idempotent calls when urllib chokes on a truncated
+    chunked response."""
     hf = tempfile.NamedTemporaryFile("w", delete=False, suffix=".hdr")
     bf = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".json")
     try:
         hf.write("\n".join(f"{k}: {v}" for k, v in headers.items()))
         hf.close()
-        bf.write(data)
+        bf.write(data or b"")
         bf.close()
+        body_args = ["-X", "POST", "--data", "@" + bf.name] if data is not None else ["-X", "GET"]
         p = subprocess.run(
-            ["curl", "-sS", "--max-time", str(timeout), "-X", "POST",
-             BASE + path, "-H", "@" + hf.name, "--data", "@" + bf.name],
+            ["curl", "-sS", "--max-time", str(timeout), *body_args,
+             BASE + path, "-H", "@" + hf.name],
             capture_output=True, timeout=timeout + 30)
         if p.returncode != 0:
             raise RuntimeError(f"curl fallback for {path} failed: {p.stderr.decode()[:200]}")
@@ -474,6 +497,107 @@ def delete_task(event_id, *, series=False, tok=None):
     return api("/app/task/delete",
                {"deviceId": str(DEVICE), "eventId": str(event_id),
                 "deleteMethod": 2 if series else 0}, tok)
+
+
+# ================================================================ account / summary  (read-only)
+
+def whoami(tok=None):
+    """The signed-in user. Cheapest way to check the token still works.
+
+    Request:  GET /app/user/mine/info
+    Response: {"code": 200, "data": {"userId": "<USER_ID>", "userName": "...",
+               "email": "...", "userStatus": 1, "plusType": 0, "isSubscribe": 0, ...}}
+    """
+    r = api("/app/user/mine/info", None, tok, method="GET")
+    if r.get("code") != 200:
+        raise RuntimeError(f"user/mine/info -> {r.get('code')}: {r.get('msg')}")
+    return r.get("data") or {}
+
+
+def family(tok=None):
+    """Families/devices the account belongs to (the wall display shows up here).
+
+    Request:  GET /app/family/list
+    Response: {"code": 200, "data": [
+                {"deviceId": "<DEVICE_ID>", "familyName": "...", "isOwner": true,
+                 "devicePlatformEmail": "...@myecalendar.com", "auditStatus": 1,
+                 "deviceCodes": [{"virtualDeviceId": "<DEVICE_ID>", "deviceType": 0,
+                                  "loginStatus": 1, "deviceName": "..."}]}]}
+    """
+    r = api("/app/family/list", None, tok, method="GET")
+    if r.get("code") != 200:
+        raise RuntimeError(f"family/list -> {r.get('code')}: {r.get('msg')}")
+    return r.get("data") or []
+
+
+def _utc_end_of_day(d):
+    off = tz_offset(d)
+    return datetime(d.year, d.month, d.day, 23, 59, 59) - timedelta(hours=off), off
+
+
+def summary(categories=None, tok=None):
+    """Today's at-a-glance counts (what the app's home screen shows).
+
+    categories: keys/ids to include; default every ECALENDAR_CATEGORIES entry. Synced
+    feeds aren't in ECALENDAR_CATEGORIES, so pass their ids too if you want their
+    events counted.
+
+    Request:
+      POST /app/user/summary/data
+      {"isFrontHandleHidden": 1, "activeTaskCategoryIds": ["<CATEGORY_ID>", ...],
+       "activeEventCategoryIds": ["<CATEGORY_ID>", ...], "deviceId": "<DEVICE_ID>",
+       "language": "en", "appCurrentTime": "2026-09-13 05:13:15",   # UTC
+       "zone": -5, "use12HourFormat": true, "handleCrossDay": 1}
+    Response:
+      {"code": 200, "data": {"todayEvents": [], "todayNotStartEventCount": 0,
+       "todayNotCompletedMiscellaneousCount": 2, "listCount": 2, "categoryCount": 7,
+       "photoCount": 1, "userPhotoAlbumCount": 1, "deviceStatus": 0, "hasDeviceCode": 1}}
+    ("Miscellaneous" = tasks.)
+    """
+    _require_setup()
+    cats = resolve_category(categories) if categories else list(CATEGORIES.values())
+    if isinstance(cats, str):
+        cats = [cats]
+    body = {
+        "isFrontHandleHidden": 1, "activeTaskCategoryIds": cats,
+        "activeEventCategoryIds": cats, "deviceId": str(DEVICE), "language": "en",
+        "appCurrentTime": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+        "zone": tz_offset(), "use12HourFormat": True, "handleCrossDay": 1,
+    }
+    r = api("/app/user/summary/data", body, tok)
+    if r.get("code") != 200:
+        raise RuntimeError(f"summary/data -> {r.get('code')}: {r.get('msg')}")
+    return r.get("data") or {}
+
+
+def category_stats(day=None, tok=None):
+    """Every category with its star balance and task progress for a day
+    ('YYYY-MM-DD', default today).
+
+    Request:
+      POST /app/user/event/category/list/v2
+      {"deviceId": "<DEVICE_ID>", "pageSize": 1000, "filterOverdueMiscellaneous": 1,
+       "zone": -5, "appCurrentTime": "2026-09-13 05:13:14",        # UTC
+       "dateTime": "2026-09-14 04:59:59"}                          # end of day, UTC
+    Response:
+      {"code": 200, "data": {"total": 0, "completed": 0, "pageTotal": 7, "categories": [
+        {"userCalendarCategoryId": "<CATEGORY_ID>", "categoryName": "Kid A",
+         "categoryType": 1, "starCount": 11, "completedMiscellaneousCount": 0,
+         "totalMiscellaneousCount": 0, "syncCalenderId": null, ...}]}}
+    (The v1 /category/list returns the same rows with all-time task counts instead.)
+    """
+    _require_device()
+    d = datetime.strptime((day or date.today().isoformat())[:10], "%Y-%m-%d").date()
+    end_utc, off = _utc_end_of_day(d)
+    body = {
+        "deviceId": str(DEVICE), "pageSize": 1000, "filterOverdueMiscellaneous": 1,
+        "zone": off, "appCurrentTime": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+        "dateTime": end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    r = api("/app/user/event/category/list/v2", body, tok)
+    if r.get("code") != 200:
+        raise RuntimeError(f"category/list/v2 -> {r.get('code')}: {r.get('msg')}")
+    return r.get("data") or {}
 
 
 # ================================================================ notes
@@ -774,7 +898,8 @@ def list_meals(start_date, end_date, categories=None, tok=None):
 if __name__ == "__main__":
     t = token()
     src = "env" if os.environ.get("ECALENDAR_TOKEN") else "plist"
-    print(f"token ok ({src}):", t[:22], "...")
+    me = whoami(t)
+    print(f"token ok ({src}): signed in as", me.get("userName") or me.get("userId"))
     _require_setup()
     print(f"{TIMEZONE} offset today:", tz_offset())
     ev = list_events(date.today().isoformat(), date.today().isoformat())

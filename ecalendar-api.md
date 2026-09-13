@@ -13,8 +13,11 @@ supply via the `ECALENDAR_*` environment variables — see `SETUP.md`.
 ## Auth
 
 - **Base:** `https://api.cd.myecalendar.com`
-- **Token:** JWT, **no expiry**. Full-account bearer credential (read+write every note /
-  event / task / reward on the account). `ECALENDAR_TOKEN`, or read from the macOS app
+- **Token:** JWT, no time-based expiry (`/app/user/login` returns `expireTime: -1`), but
+  **any new sign-in to the account, on any device, issues a new token and kills the old
+  one** — old-token calls then return `{"code":401,"msg":"Account logged in on another
+  device"}`. Full-account bearer credential (read+write every note / event / task /
+  reward on the account). `ECALENDAR_TOKEN`, or read from the macOS app
   plist `~/Library/Containers/com.fujia.ecalendar/Data/Library/Preferences/com.fujia.ecalendar.plist`
   → `plistlib.load` → key `flutter.user` (a JSON string) → `.token`.
 - **Per-account IDs:** `<DEVICE_ID>` = `flutter.deviceMemory` in the plist;
@@ -24,17 +27,21 @@ supply via the `ECALENDAR_*` environment variables — see `SETUP.md`.
   user-agent: Dart/3.9 (dart:io)
   key: <token>
   authorization: Bearer <token>
-  x-time-zone: America/New_York      # the app hardcodes this; change if your account is elsewhere
-  x-zone-id: America/New_York
+  x-time-zone: America/Chicago       # the device's IANA zone -- use your account's
+  x-zone-id: America/Chicago
   x-client-capabilities: routine-v1
   resource: app
   x-language: en
   versionname: 571
   content-type: application/json
   ```
-- **Responses:** all POST, `{"code":200|500, "msg":…, "data":…}` (some list endpoints
-  also put `total`/`rows` at top level). May be gzip-encoded — handle `Content-Encoding: gzip`.
-  `code:500` + a `msg` = validation error (auth was fine). `401` = bad token.
+- **Responses:** writes and most lists are POST; lookups like `/app/user/mine/info` and
+  `/app/family/list` are GET. Body is `{"code":200|500|401, "msg":…, "data":…}` (some
+  list endpoints also put `total`/`rows` at top level), with HTTP status 200 even on
+  errors. May be gzip-encoded — handle `Content-Encoding: gzip`.
+  `code:500` + a `msg` = validation error (auth was fine). `code:401` = token no longer
+  valid (usually replaced by a newer sign-in); the app also sends `authorization:
+  Bearer null` before login and gets the same 401.
 
 ## Calendar categories ("profiles")
 
@@ -227,10 +234,15 @@ shows on the calendar; a task shows only in the Tasks tab.
 | Grocery | `/app/grocery/planItems` `/customItems` `/customItems/edit|delete|check` `/timeSetting` |
 | Meals | `GET /app/mealCategory`, `POST /app/mealRecipe/list`, `POST /app/mealRecipe`, `POST /app/mealPlan`, `POST /app/mealPlan/list`, `POST /app/v2/recipe/groupedList` |
 | Wall-device pairing | `POST /app/device/code/create` `{virtualDeviceId,deviceType,requestId}` → `deviceCode`; `/app/device/code/query` `/list` |
+| Account | `GET /app/user/mine/info` → `{userId,userName,email,plusType,isSubscribe,…}` (`ecal.whoami`); `GET /app/family/list` → families + paired devices (`ecal.family`); `GET /app/user/summary/virtual-device-detail?deviceId=` |
+| Home summary | `POST /app/user/summary/data` `{activeTaskCategoryIds,activeEventCategoryIds,deviceId,language,appCurrentTime(UTC),zone,use12HourFormat,handleCrossDay}` → today's event/task counts (`ecal.summary`) |
+| Category stats | `POST /app/user/event/category/list/v2` `{deviceId,pageSize,filterOverdueMiscellaneous,zone,appCurrentTime(UTC),dateTime(end of day, UTC)}` → `{total,completed,categories[{…,starCount,completedMiscellaneousCount,totalMiscellaneousCount}]}` (`ecal.category_stats`) |
+| Login | `POST /app/user/login` `{email,password}` → `{token,expireTime:-1,…}`. **A proxy capture of this request contains the account password in plain text** — delete the capture |
+| Consent | `GET /app/consent/types`, `POST /app/consent/record` `{consentType}` |
 | Feature flags | `GET /app/module/switch` → `{greetingCardSwitch,rewardSwitch,anniversaryModuleSwitch,magicImportSwitch,fileUploadModuleSwitch,…}` (0/1) |
 | Membership | `GET /app/user/membershipPackage/current` (`{packageId:null}` = free), `/listV2`. Plus unlocks AI Dialogue, Magic Import, more paired devices |
 | Realtime | `wss://im.myecalendar.com/ws?id=…` |
-| AI | `ai.myecalendar.com/ai/chat/*` (paid, points-based) |
+| AI | `ai.myecalendar.com/ai/chat/*` (paid, points-based). `GET /ai/chat/quota` (extra `x-device-id` header) → `{tier,remaining,aiPoints{canUseAi,…}}` |
 
 ~150 further `/app/…` endpoints exist in the app binary
 (`.../eCalendar*.app/…/Frameworks/App.framework/App`) — names only, no shapes.
@@ -239,6 +251,8 @@ shows on the calendar; a task shows only in the Tasks tab.
 
 ## Quirks / gotchas
 
+- A new sign-in anywhere invalidates the previous token (`code:401` "Account logged in
+  on another device", HTTP 200).
 - `event/list` 7-day-minimum range.
 - `event/add` returns no id — always dedupe before create.
 - All-day reminders: single, `minute` unit only.
