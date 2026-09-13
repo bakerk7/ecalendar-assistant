@@ -166,6 +166,11 @@ A **task** is a chore assigned to a person, living in the app's Tasks tab. Stars
 default to **0** (no reward); pass `stars=` to give one. A dated deadline or
 appointment with no assignee is an **event** instead — use `create_event`.
 
+A **routine** is a task pinned to a time of day (morning / afternoon / evening) that
+repeats daily. The app creates one with `taskMode: 1` and `routinePeriods`, and gets back
+one series per period. `ecal.py` doesn't wrap routines yet; the request is documented in
+`ecalendar-api.md` → Routines.
+
 ### Account & summary (read-only)
 
 ```python

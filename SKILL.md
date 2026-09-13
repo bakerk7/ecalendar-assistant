@@ -240,7 +240,7 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
 - Notes (create/update/delete/attach) need `ECALENDAR_INSTANCE`; events/tasks don't.
 - **Task vs event:** a **task/chore** (`create_task`) is a to-do assigned to a person,
   in the Tasks tab — "give kid_a a chore to…". A dated **deadline or appointment** with
-  no assignee is an **event** (`create_event`). `create_task` needs a non-empty `emoji`.
+  no assignee is an **event** (`create_event`). `create_task`'s `emoji` must be an emoji name or `None`; an empty string is rejected. A **routine** (a daily task pinned to morning / afternoon / evening) is a separate task mode; see `ecalendar-api.md` → Routines.
 - **Task stars default to 0.** Only pass `stars=` when the user asks for a reward
   ("2 stars"). When you report tasks you created without stars, say they have **no
   stars** and that the user can ask for them. Things like homework shouldn't earn stars.

@@ -439,7 +439,8 @@ def create_task(title, *, category, due=None, stars=0, emoji="MEMO", description
     due          : 'YYYY-MM-DD' the task is due (all-day). Defaults to today.
     stars        : reward stars on completion. Defaults to 0 (no reward) -- only
                    set it when the user asks for stars.
-    emoji        : an emoji *name* (e.g. "BROOM", "BOWL WITH SPOON"). Must be non-empty.
+    emoji        : an emoji *name* (e.g. "BROOM", "BOWL WITH SPOON"). The API also
+                   accepts null (no icon) but rejects "".
     recur        : an eventRecurrenceRule (see recurrence()) for a repeating chore.
     timer_seconds: optional focus-timer length.
 

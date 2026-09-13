@@ -186,7 +186,7 @@ Max 8 / note. App uploads webp (~170 KB); jpg/png also fine.
   "eventType": "2", "taskType": 0,
   "isAllDay": 1, "startDatetime": "2026-09-11 23:59:59",
   "userCalendarCategoryIds": ["<CATEGORY_ID>"], "zone": -4,
-  "emoji": "WASTEBASKET",              // a non-empty emoji name is required
+  "emoji": "WASTEBASKET",              // emoji name, or null for no icon (the app sends null); "" is rejected
   "starCount": "2",                    // reward stars; "0" = no reward (accepted on add and edit)
   "priority": "0",
   "timerDurationSeconds": 123,        // optional focus-timer
@@ -196,6 +196,45 @@ Max 8 / note. App uploads webp (~170 KB); jpg/png also fine.
 }
 ```
 → `{data:{createdCount:1, eventIds:[…]}}`.
+
+A task created this way is a **chore** (`taskMode: 0` on read). The app's own "add chore"
+request (captured 2026-09-13) is the body above with `"emoji": null`, `"starCount": 0` as
+a number, and no `timeReminders` changes. The server stores `23:59:59` as `23:59:00`.
+
+### Routines  (`taskMode: 1`)
+
+A routine is a repeating task pinned to one or more **times of day**. It uses the same
+`POST /app/task`, but with no `isAllDay` / `startDatetime` / `timeReminders`:
+
+```json
+{
+  "deviceId": "<DEVICE_ID>", "title": "…", "description": "",
+  "eventType": "2", "taskType": 0, "taskMode": 1,
+  "routinePeriods": [1, 3],            // one entry per time-of-day slot, see table
+  "routineStartDate": "2026-09-13",    // local date the routine starts
+  "isRecurring": 1,
+  "eventRecurrenceRule": {"recurrenceUnit": 1, "recurrenceValue": "1", "weekDays": null,
+                          "recurrenceMonthOption": null, "eventRecurrenceRulesId": 0},
+  "userCalendarCategoryIds": ["<CATEGORY_ID>"], "zone": -5,
+  "emoji": null, "starCount": 0, "priority": "0", "timerDurationSeconds": null,
+  "taskTimeoutPenalty": 0, "taskTimeoutPenaltyStarPercent": "0.00", "taskTimeoutPenaltyStarCount": 0
+}
+```
+→ `{data:{createdCount:2, eventIds:["<id for period 1>","<id for period 3>"]}}`: **one
+independent recurring series per period**, each its own series root.
+
+| `routinePeriod` | window (local) | seen |
+|---|---|---|
+| 1 | 00:00 – 12:00 (morning) | captured |
+| 2 | 12:00 – 18:00 (afternoon), presumably | not captured |
+| 3 | 18:00 – 24:00 (evening) | captured |
+
+On `/app/task/list` each routine instance comes back as a row with `taskMode: 1`,
+`routinePeriod`, `routineSourceEventId` (= its own series `eventId`),
+`routineInstanceDate`, `isAllDay: 0`, `startDatetime`/`endDatetime` set to the period
+window, `eventRecurrenceRule.recurrenceRuleDescription: "Daily"`,
+`deleteMethodSet: [1,2]`, and `updateMethodSet: [1]`. A one-off chore has
+`deleteMethodSet: null`. Editing and deleting routines weren't captured.
 
 **Read** — `POST /app/task/list`:
 ```json
@@ -214,8 +253,23 @@ ones) plus `"eventId"`, `"updateMethod":0`, `"originEventId":null`,
 data:null}`. The eventId is kept. Verified for one-off tasks; recurring not tested.
 
 **Delete** — `POST /app/task/delete` `{"deviceId":…,"eventId":…,"deleteMethod":0}`
-(`deleteMethod:2` for a whole recurring chore). Also `/app/task/complete`,
-`/app/task/statistics`.
+(`deleteMethod:2` for a whole recurring chore). Also `/app/task/complete`.
+
+**Weekly counts** — `POST /app/task/statistics`:
+```json
+{"deviceId":"<DEVICE_ID>","userCalendarCategoryIds":["<CATEGORY_ID>",…],
+ "startDatetime":"2026-09-13 05:00:00","endDatetime":"2026-09-20 04:59:59",   // week, UTC
+ "currentDatetime":"<UTC now>","dateTime":"<today 23:59:59 in UTC>",
+ "filterOverdueMiscellaneous":0,"language":"en","zone":-5}
+```
+→ `{data:{zoneId:"America/Chicago", taskStatisticsList:[{date:"2026-09-13",taskTotal:5},…],
+miscIconList:[…]}}`: the number of tasks per day, which is what the week strip shows.
+
+**Templates / title autocomplete** — `POST /app/event/selectTaskTemplateList`
+`{"pageNum":1,"pageSize":10}` → `{total:52, rows:[{taskTemplateId,categoryName:"Housework",
+title:"Wash dishes",starCount:"2",rrule:"FREQ=DAILY",emoji:"BOWL WITH SPOON"},…]}`. The
+app sends this again with `"title":"<what's typed so far>"` as you type a task name,
+to suggest matching templates. It's also a good source of valid `emoji` names.
 
 **Task vs event:** a task/chore is a to-do assigned to a person, with an optional star
 reward. For a plain dated **deadline** (no assignee) use an all-day event instead — it
@@ -256,7 +310,8 @@ shows on the calendar; a task shows only in the Tasks tab.
 - `event/list` 7-day-minimum range.
 - `event/add` returns no id — always dedupe before create.
 - All-day reminders: single, `minute` unit only.
-- Tasks reject an empty `emoji`. (`starCount:"0"` is fine — verified 2026-09-10.)
+- Tasks reject an empty `emoji` string, but `null` is accepted (the app sends it when no icon is picked). (`starCount:"0"` is fine — verified 2026-09-10.)
+- A routine with N `routinePeriods` creates N separate recurring series, so N `eventIds`.
 - `deviceId` is a JSON **number** in `note/sync/push`, a **string** almost everywhere else.
 - Externally-synced event rows carry UTC times; app-created ones carry local.
 - `zone` must match the target date's actual UTC offset (DST), not today's.
