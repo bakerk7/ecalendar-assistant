@@ -172,8 +172,12 @@ one series per period:
 
 ```python
 ecal.create_routine("Brush teeth", category="kid_a", periods=["morning", "evening"])
-#   -> [morning_event_id, evening_event_id]; delete_task(id, series=True) should remove one (not yet verified)
+#   -> [morning_event_id, evening_event_id]
 ```
+
+To delete a routine series, `/app/task/delete` rejects the ids the create call
+returns ("eventId is invalid") — resolve the series id from `list_tasks` (the row
+whose `eventId == routineSourceEventId`) and call `delete_task(that_id, series=True)`.
 
 ### Account & summary (read-only)
 
@@ -254,9 +258,11 @@ recurrence rules and the task model — is in [`ecalendar-api.md`](ecalendar-api
   fetches a widened window and filters locally.
 - `/app/event/add` returns `{"code":200,"data":null}`, **no event id** — dedupe with
   `find_duplicate`/`events_on` rather than trusting the response.
-- Event/meal times are sent as local wall time plus a numeric `zone`/`addZone`
-  offset, auto-picked per date for `ECALENDAR_TIMEZONE`. Times read back may be local
-  (app-created) or UTC (externally synced feeds), so comparisons account for both.
+- Event/meal times are stored as **UTC** — convert local time to UTC before
+  `create_event`/`edit_event` (the app displays them in the account zone; sending
+  wall time makes events show hours early, verified 2026-09-13). `dateDescription`
+  on the row is the reliable "what the app shows" check. A numeric `zone`/`addZone`
+  offset is still sent, auto-picked per date for `ECALENDAR_TIMEZONE`.
 - All-day events accept exactly one reminder, and it must be minute-based
   (`create_event` uses a 9 AM popup).
 - Deleting a whole recurring series needs the series-root `eventId`

@@ -62,8 +62,10 @@ Put the writable ones (no `syncCalenderId`) in `ECALENDAR_CATEGORIES`.
 isAnniversary,routineSourceEventId,routineInstanceDate,eventRecurrenceRule,description,
 locationInfo,…}]}`
 **Rejects any range < 7 days** (200 body `code:500`). Fetch a wider window, filter client-side.
-Times in rows are local for app-created events, **UTC** for externally-synced calendars —
-don't match on exact time.
+`startDatetime`/`endDatetime` are stored as **UTC**; the app converts to the account
+zone for display. Convert local → UTC before create/edit, compare read-back times
+in UTC, and use `dateDescription` on the row as the "what the app shows" check
+(sending local wall time makes events show hours early — verified 2026-09-13).
 
 ### `POST /app/event/add` — create
 ```json
@@ -72,7 +74,7 @@ don't match on exact time.
   "title": "…", "description": "",
   "eventType": 0,
   "isAllDay": 0,                          // 1 = all-day
-  "startDatetime": "2026-09-10 14:00:00", // local wall time (see zone)
+  "startDatetime": "2026-09-10 14:00:00", // UTC — convert from local first
   "endDatetime":   "2026-09-10 15:00:00", // all-day: "<date> 00:00:00" .. "<date> 23:59:59"
   "isRecurring": 0, "eventRecurrenceRule": null,
   "userCalendarCategoryIds": ["<CATEGORY_ID>"],
@@ -313,8 +315,14 @@ shows on the calendar; a task shows only in the Tasks tab.
 - All-day reminders: single, `minute` unit only.
 - Tasks reject an empty `emoji` string, but `null` is accepted (the app sends it when no icon is picked). (`starCount:"0"` is fine — verified 2026-09-10.)
 - A routine with N `routinePeriods` creates N separate recurring series, so N `eventIds`.
+- Deleting a routine: `/app/task/delete` rejects the ids the routine-create call
+  returns ("eventId is invalid") — resolve the series id from `list_tasks` (the row
+  whose `eventId == routineSourceEventId`) and delete with `series=True`.
+- The Board menu item is not API-writable (`/app/note/boards` rejects requests) —
+  use regular Notes with image attachments for display content instead.
 - `deviceId` is a JSON **number** in `note/sync/push`, a **string** almost everywhere else.
-- Externally-synced event rows carry UTC times; app-created ones carry local.
+- Event datetimes are stored as UTC; the app displays them in the account zone
+  (convert local → UTC before create/edit).
 - `zone` must match the target date's actual UTC offset (DST), not today's.
 - mitmproxy intercepting breaks a few SDK flows (the `im.myecalendar.com` websocket), and
   the app can show "bad response" / "no network" until fully quit + relaunched after

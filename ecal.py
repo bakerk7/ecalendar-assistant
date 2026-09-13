@@ -335,8 +335,13 @@ def create_event(title, start, end=None, *, all_day=False, description="",
 
     all_day=True  : `start` = 'YYYY-MM-DD'. Gets a 9:00 AM popup (all-day events only
                     accept one minute-based reminder).
-    all_day=False : `start`/`end` = 'YYYY-MM-DD HH:MM:SS' LOCAL wall time. `end`
-                    defaults to start + 1h. reminders_min = minutes-before popups.
+    all_day=False : `start`/`end` = 'YYYY-MM-DD HH:MM:SS' in UTC — the API stores
+                    datetimes as UTC and the app converts to the account zone for
+                    display, so convert local time to UTC first (sending local wall
+                    time makes events show hours early; verified 2026-09-13).
+                    `end` defaults to start + 1h. reminders_min = minutes-before
+                    popups. `dateDescription` on the row is the reliable
+                    "what the app shows" check.
     category      : a key from ECALENDAR_CATEGORIES, or a raw id. Defaults to
                     ECALENDAR_DEFAULT_CATEGORY.
     recur         : an eventRecurrenceRule dict (see recurrence()), or None.
@@ -493,9 +498,10 @@ def create_routine(title, *, category, periods=("morning",), start=None, stars=0
     emoji        : an emoji name, or None for no icon (what the app sends).
     timer_seconds: optional focus-timer length.
 
-    Returns the new eventIds, one per period (each is its own series root, so
-    delete_task(event_id, series=True) should remove that period's routine --
-    routine deletes haven't been captured yet).
+    Returns the new eventIds, one per period. NOTE: in testing (2026-09-13)
+    `/app/task/delete` rejected those ids as "eventId is invalid" — to delete a
+    routine series, resolve its id from `list_tasks` (the row whose
+    `eventId == routineSourceEventId`) and call `delete_task(that_id, series=True)`.
 
     Request (captured from the app 2026-09-13, periods morning + evening):
       POST /app/task
