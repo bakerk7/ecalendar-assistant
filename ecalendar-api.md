@@ -62,10 +62,22 @@ Put the writable ones (no `syncCalenderId`) in `ECALENDAR_CATEGORIES`.
 isAnniversary,routineSourceEventId,routineInstanceDate,eventRecurrenceRule,description,
 locationInfo,…}]}`
 **Rejects any range < 7 days** (200 body `code:500`). Fetch a wider window, filter client-side.
-`startDatetime`/`endDatetime` are stored as **UTC**; the app converts to the account
-zone for display. Convert local → UTC before create/edit, compare read-back times
-in UTC, and use `dateDescription` on the row as the "what the app shows" check
-(sending local wall time makes events show hours early — verified 2026-09-13).
+`startDatetime`/`endDatetime` on **timed** events are stored as **UTC**; the app converts
+to the account zone for display. Callers of `ecal.py` pass **local wall time** and the
+client converts to UTC before create/edit (sending wall time on the wire makes events
+show hours early — verified 2026-09-13). Read-side filtering compares the converted
+**local** date, not the UTC date prefix. `dateDescription` on the row is the reliable
+"what the app shows" check.
+
+**All-day events are different, and this is not re-verified on a device.** `ecal.py`
+sends them as the calendar date `00:00:00`–`23:59:59` plus `zone`, and does **not**
+shift those stamps to UTC. Treating `00:00:00` as a UTC instant would put the end on
+the next local day for any negative offset. The same assumption covers task due times
+(`YYYY-MM-DD 23:59:59` + `zone`) and meal-plan `mealDateTime` (`YYYY-MM-DD 23:59:59` +
+`addZone`): they are calendar-date markers. If an all-day event, chore, or meal lands
+on the wrong day, this assumption is wrong and those writes need the same UTC
+conversion timed events use — or the opposite. Timed rows read back as UTC; all-day
+rows are filtered on the date prefix as stored.
 
 ### `POST /app/event/add` — create
 ```json
@@ -74,8 +86,10 @@ in UTC, and use `dateDescription` on the row as the "what the app shows" check
   "title": "…", "description": "",
   "eventType": 0,
   "isAllDay": 0,                          // 1 = all-day
-  "startDatetime": "2026-09-10 14:00:00", // UTC — convert from local first
-  "endDatetime":   "2026-09-10 15:00:00", // all-day: "<date> 00:00:00" .. "<date> 23:59:59"
+  "startDatetime": "2026-09-10 19:00:00", // UTC on the wire. ecal.py takes local
+                                          // wall time and converts (15:00 EDT → 19:00Z)
+  "endDatetime":   "2026-09-10 20:00:00", // all-day: "<local date> 00:00:00" .. "23:59:59"
+                                          // (not converted — see the assumption above)
   "isRecurring": 0, "eventRecurrenceRule": null,
   "userCalendarCategoryIds": ["<CATEGORY_ID>"],
   "zone": -4,                             // target date's UTC offset (e.g. US-Eastern: -4 EDT / -5 EST)
@@ -202,6 +216,9 @@ Max 8 / note. App uploads webp (~170 KB); jpg/png also fine.
 A task created this way is a **chore** (`taskMode: 0` on read). The app's own "add chore"
 request (captured 2026-09-13) is the body above with `"emoji": null`, `"starCount": 0` as
 a number, and no `timeReminders` changes. The server stores `23:59:59` as `23:59:00`.
+`ecal.py` sends that `startDatetime` as a **local date marker** (not converted to UTC),
+same assumption as all-day events. The list query's `dateTime` is a different field:
+end of the local day expressed in UTC.
 
 ### Routines  (`taskMode: 1`)
 
@@ -321,9 +338,15 @@ shows on the calendar; a task shows only in the Tasks tab.
 - The Board menu item is not API-writable (`/app/note/boards` rejects requests) —
   use regular Notes with image attachments for display content instead.
 - `deviceId` is a JSON **number** in `note/sync/push`, a **string** almost everywhere else.
-- Event datetimes are stored as UTC; the app displays them in the account zone
-  (convert local → UTC before create/edit).
-- `zone` must match the target date's actual UTC offset (DST), not today's.
+- Timed event datetimes are stored as UTC. `ecal.py` callers pass local wall time;
+  the client converts before create/edit. All-day events, task due times, and meal
+  `mealDateTime` are sent as local calendar-date markers plus `zone`/`addZone`
+  (assumption — verify on a device; see the Events section).
+- Reads compare timed events in local time. Timed dedupe also matches the clock
+  time, so two instances of a weekly event are not the same row.
+- `zone` must match the target **local** date's actual UTC offset (DST), not today's.
+  Half-hour and 45-minute zones are sent as fractional hours (`5.5`, `5.75`), not
+  truncated to a whole hour.
 - mitmproxy intercepting breaks a few SDK flows (the `im.myecalendar.com` websocket), and
   the app can show "bad response" / "no network" until fully quit + relaunched after
   proxy teardown.
