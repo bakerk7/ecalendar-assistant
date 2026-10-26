@@ -122,7 +122,8 @@ No dependencies beyond the standard library.
 ```python
 import ecal
 
-# timed event; end defaults to start + 1h
+# timed event — local wall time in ECALENDAR_TIMEZONE; converted to UTC internally.
+# end defaults to start + 1h local. Do not pre-convert.
 ecal.create_event("Dentist", "2026-03-14 15:30:00",
                   category="kid_a", location="Some Dental Office", reminders_min=(30,))
 
@@ -137,7 +138,8 @@ ecal.create_event("Piano lesson", "2026-09-15 16:00:00", category="kid_b",
 # read the calendar (range is auto-widened; single days are fine)
 ecal.events_on("2026-09-11")
 ecal.list_events("2026-09-07", "2026-09-13")
-ecal.find_duplicate("Picture Day", "2026-10-03")     # -> row or None; call before create
+ecal.find_duplicate("Dentist", "2026-03-14 15:30:00")  # timed: same local day + time
+ecal.find_duplicate("Picture Day", "2026-10-03")        # all-day: title within ±1 local day
 
 # edit (same fields as create; needs the eventId)
 ecal.edit_event(event_id, "Dentist (moved)", "2026-03-14 16:00:00", category="kid_a")
@@ -258,11 +260,22 @@ recurrence rules and the task model — is in [`ecalendar-api.md`](ecalendar-api
   fetches a widened window and filters locally.
 - `/app/event/add` returns `{"code":200,"data":null}`, **no event id** — dedupe with
   `find_duplicate`/`events_on` rather than trusting the response.
-- Event/meal times are stored as **UTC** — convert local time to UTC before
-  `create_event`/`edit_event` (the app displays them in the account zone; sending
-  wall time makes events show hours early, verified 2026-09-13). `dateDescription`
-  on the row is the reliable "what the app shows" check. A numeric `zone`/`addZone`
-  offset is still sent, auto-picked per date for `ECALENDAR_TIMEZONE`.
+- Timed event start/end are **local wall time** in `ECALENDAR_TIMEZONE`.
+  `create_event` / `edit_event` convert them to UTC internally — the API stores
+  UTC and the app displays the account zone (sending wall time on the wire makes
+  events show hours early, verified 2026-09-13). Pass `"2026-03-14 15:30:00"` for
+  3:30pm; do not pre-convert. `dateDescription` on the row is the reliable "what
+  the app shows" check. A numeric `zone` / `addZone` offset is still sent,
+  auto-picked per local date (half-hour zones included). On edit, pass
+  `originStartDatetime` / `originEndDatetime` exactly as `list_events` returned them.
+- All-day events, task due timestamps (`23:59:59` on the due date), and meal-plan
+  `mealDateTime` values are sent as **calendar-date markers plus `zone`**, not
+  shifted to UTC. **This is an assumption and needs a device check** — if an
+  all-day event, chore, or meal shows on the wrong day, that assumption is wrong.
+  See [`ecalendar-api.md`](ecalendar-api.md).
+- Reads (`list_events`, `find_duplicate`, `ecal_cache.events_on`) compare dates in
+  **local** time. Timed dedupe also requires the clock time (within 15 minutes),
+  so a weekly series does not match the wrong instance.
 - All-day events accept exactly one reminder, and it must be minute-based
   (`create_event` uses a 9 AM popup).
 - Deleting a whole recurring series needs the series-root `eventId`
@@ -282,10 +295,13 @@ recurrence rules and the task model — is in [`ecalendar-api.md`](ecalendar-api
 | File | What it is |
 |---|---|
 | `SKILL.md` | The skill definition — tells Claude when to use eCalendar and how to resolve dates, pick a category, dedupe, and confirm. Copy into `.claude/skills/ecalendar/` in your own repo. |
-| `ecal.py` | The client. No dependencies beyond the standard library. |
+| `ecal.py` | The client. No runtime dependencies beyond the standard library. |
+| `ecal_cache.py` | Local sqlite mirror of the event list. Compare dates in local time; keep it fresh with `sync()`. |
 | `ecalendar-api.md` | Full private-API reference behind `ecal.py`. |
-| `extract_ecal_config.py` | Run on a Mac signed into eCalendar — prints your `ECALENDAR_*` values with no proxy needed. |
+| `extract_ecal_config.py` | Run on a Mac signed into eCalendar — prints your `ECALENDAR_*` values, or `--write`s them mode `0600`. |
 | `SETUP.md` | Full setup walkthrough: the Mac-script path, the iOS-only proxy path, and where each value goes. |
+| `pyproject.toml` | Package metadata (`requires-python >= 3.9`, no runtime deps) and ruff config. |
+| `tests/` | Pytest suite. The API is mocked; nothing here calls `api.cd.myecalendar.com`. |
 
 ## Security
 
@@ -293,6 +309,10 @@ The token is a password-equivalent bearer credential with full read/write access
 every event, note, task, and meal on the account.
 
 - Keep it in environment variables or a secret store — **never** in a committed file.
+  `ECALENDAR_INFO.bin` (what `load_auth_file()` reads) is gitignored.
+  `python3 extract_ecal_config.py --write ./ECALENDAR_INFO.bin` writes it with
+  mode `0600` and does not print the token. `load_auth_file()` warns if that file
+  is readable by group or other.
 - Use a **private** repo for your own copy.
 - If you capture it with an HTTPS proxy during setup, remove the proxy configuration
   from the device again once you're done, and delete the capture — if the app signed

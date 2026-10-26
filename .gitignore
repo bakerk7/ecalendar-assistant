@@ -2,7 +2,11 @@
 .env
 .env.*
 *.plist
+# written by extract_ecal_config.py --write / read by ecal.load_auth_file()
+ECALENDAR_INFO.bin
 
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 .DS_Store
