@@ -4,7 +4,7 @@ This gives Claude the same eCalendar capability on **your own account** with **y
 credentials**. Nothing is shared between accounts — you can't reuse anyone else's token,
 device id, instance id, or category ids; they're tied to a sign-in.
 
-`ecal.py` reads five values from environment variables (never hardcode them, never commit
+`ecal.py` reads these values from environment variables (never hardcode them, never commit
 them):
 
 | Variable | What it is |
@@ -14,6 +14,7 @@ them):
 | `ECALENDAR_INSTANCE` | The app's `clientInstanceId` (a UUID) — only used for Notes. |
 | `ECALENDAR_CATEGORIES` | JSON mapping short names to your calendar category ids, e.g. `{"family":"123","kid_a":"456"}`. |
 | `ECALENDAR_DEFAULT_CATEGORY` | Optional — which key above to use when none is given. Defaults to `family`/`home` if present, else the first entry. |
+| `ECALENDAR_TIMEZONE` | Optional IANA zone, default `America/New_York`. Timed events are passed as local wall time in this zone; `ecal.py` converts them to UTC. Set this to the account's real zone. |
 
 ---
 
@@ -32,6 +33,16 @@ Every value lives in the macOS app's own preferences file. One script pulls all 
 3. It prints the five `ECALENDAR_*` lines ready to paste, plus a list of your category
    keys and what each one is in the app. Copy that output — the token is
    password-equivalent, so don't paste it into anything but the secret store in Step 4.
+
+   To write a file `ecal.load_auth_file()` can read, instead of printing the token:
+
+   ```bash
+   python3 extract_ecal_config.py --write ./ECALENDAR_INFO.bin
+   ```
+
+   That creates the file mode `0600`. `ECALENDAR_INFO.bin` is gitignored. If the mode
+   is looser, `load_auth_file()` warns — `chmod 600` it. Do not `source` the file
+   from bash; quote removal mangles `ECALENDAR_CATEGORIES`.
 
 That's it for capturing values. Skip to **Step 4**.
 
