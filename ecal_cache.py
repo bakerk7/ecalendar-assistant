@@ -103,15 +103,19 @@ def sync(days_back=DEFAULT_BACK, days_forward=DEFAULT_FORWARD, db_path=None):
                  r.get("title"), r.get("endDatetime"),
                  ",".join(str(x) for x in (r.get("userCalendarCategoryIds") or [])),
                  r.get("syncCalendarId") or "",
-                 1 if r.get("allDay") else 0, json.dumps(r)))
+                 1 if r.get("isAllDay") else 0, json.dumps(r)))
             upserted += 1
         cur = wend + timedelta(days=1)
-    # drop rows in range that the server no longer returns (deleted events)
+    # Drop rows in range that the server no longer returns. Timed startDatetime
+    # is UTC, so a local date on the window edge can be stored under the next
+    # or previous UTC date — widen the delete scan by a day.
     deleted = 0
+    drop_lo = (lo - timedelta(days=1)).isoformat()
+    drop_hi = (hi + timedelta(days=1)).isoformat()
     for (k,) in cx.execute(
             "SELECT key FROM events "
             "WHERE date(substr(startDatetime,1,10)) BETWEEN ? AND ?",
-            (lo.isoformat(), hi.isoformat())).fetchall():
+            (drop_lo, drop_hi)).fetchall():
         if k not in seen:
             cx.execute("DELETE FROM events WHERE key=?", (k,))
             deleted += 1
@@ -130,47 +134,36 @@ def last_sync(db_path=None):
 
 
 def events_on(day, db_path=None):
-    """Cached equivalent of ecal.events_on(day). Returns row dicts."""
+    """Cached equivalent of ecal.events_on(day). Returns row dicts.
+
+    Comparison is in local time. Timed rows store UTC, so the SQL window is
+    widened by two days and then filtered with ecal.event_local_start.
+    """
     cx = _db(db_path)
     cx.row_factory = sqlite3.Row
+    day = day[:10]
     rows = cx.execute(
-        "SELECT raw FROM events WHERE substr(startDatetime,1,10) BETWEEN date(?, '-1 day') AND date(?, '+1 day')",
+        "SELECT raw FROM events WHERE substr(startDatetime,1,10) "
+        "BETWEEN date(?, '-2 day') AND date(?, '+2 day')",
         (day, day)).fetchall()
     cx.close()
-    target = date.fromisoformat(day[:10])
+    target = date.fromisoformat(day)
     out = []
     for r in rows:
         d = _row_to_dict(r)
-        try:
-            rd = date.fromisoformat((d.get("startDatetime") or "")[:10])
-        except ValueError:
+        local = ecal.event_local_start(d)
+        if local is None:
             out.append(d)
             continue
-        if abs((rd - target).days) <= 1:
+        if abs((local.date() - target).days) <= 1:
             out.append(d)
     return out
 
 
-def _words(t):
-    import re
-    return {w for w in re.findall(r"[a-z0-9]+", (t or "").lower()) if len(w) > 2}
-
-
-def find_duplicate(title, day, db_path=None):
-    """Cached equivalent of ecal.find_duplicate: a cached row whose title has
-    >=60% word overlap with `title` and whose start is within +/-1 day."""
-    want = _words(title)
-    if not want:
-        return None
-    best, best_score = None, 0.0
-    for d in events_on(day, db_path):
-        have = _words(d.get("title"))
-        if not have:
-            continue
-        score = len(want & have) / max(len(want), len(have))
-        if score >= 0.6 and score > best_score:
-            best, best_score = d, score
-    return best
+def find_duplicate(title, day, db_path=None, *, at=None):
+    """Cached equivalent of ecal.find_duplicate (same scorer and time rule)."""
+    target_date, _ = ecal._parse_when(day, at)
+    return ecal.pick_duplicate(events_on(target_date.isoformat(), db_path), title, day, at=at)
 
 
 def create_event(db_path=None, **kw):

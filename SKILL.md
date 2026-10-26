@@ -1,10 +1,12 @@
 ---
 name: ecalendar
 description: >-
-  Add events to (or check) the family's eCalendar app from a photo, screenshot, or a
-  spoken/typed description — school flyers, party invitations, appointment cards, game
-  schedules, "put X on the calendar", "am I free Thursday". Also creates eCalendar Notes.
-  eCalendar (com.fujia.ecalendar) is the shared calendar the family uses.
+  Read and write the family's eCalendar (Dragon Touch) calendar: add events from a
+  photo, screenshot, or a spoken/typed description — including recurring events —
+  plus chores and routines, meals, and notes. School flyers, party invitations,
+  appointment cards, game schedules, "put X on the calendar", "am I free Thursday",
+  "give Sam a chore", "add the lunch menu". eCalendar (com.fujia.ecalendar) is the
+  shared family calendar.
 ---
 
 # eCalendar
@@ -17,7 +19,7 @@ Use it when someone wants to **add a calendar event** from a picture or a descri
 **check what's on the calendar**, **add a Note**, or **add to Meals** (a recurring menu
 like a school breakfast/lunch calendar, or a meal plan).
 
-> This is the generic template copy of the skill (see `../SETUP.md` in this folder for
+> This is the generic template copy of the skill (see `SETUP.md` in this folder for
 > how it got here). Before using it for real, finish setup and edit the **"Which
 > calendar category"** section below to name your own family members / category keys —
 > everything else works as-is.
@@ -54,8 +56,11 @@ the token needs refreshing (`SETUP.md` → "If it stops working").
 3. **Confirm before writing** *only if* something was inferred or is fuzzy. If the
    request was explicit ("add dentist Tuesday March 3 at 2pm"), just create it and
    report what you added.
-4. **Dedupe**: call `ecal.find_duplicate(title, date)`. If it returns a row, don't
-   create — say it's already there.
+4. **Dedupe**: call `ecal.find_duplicate(title, when)`. For a timed event, `when` is
+   the local start `"YYYY-MM-DD HH:MM:SS"` so a different instance of a weekly item
+   (or the same title at another time that day) does not match. For an all-day
+   event, pass the date only. If it returns a row, don't create — say it's already
+   there.
 5. **Create** with `ecal.create_event(...)`.
 6. **Report** back: title, resolved date + time (spell out the weekday), category,
    reminder. The API returns no event id, so confirm by reading it back if it matters.
@@ -113,7 +118,7 @@ next week, not the coming one, unless context says otherwise.
 
 `ecal.create_event(..., category=...)` accepts a key from `ECALENDAR_CATEGORIES`
 (e.g. `"family"`, `"kid_a"`, `"kid_b"`) or a raw category id. If `category` is omitted,
-it uses `ECALENDAR_DEFAULT_CATEGORY`.
+it uses `ECALENDAR_DEFAULT_CATEGORY`, or `family` / `home` when that isn't set.
 
 - A kid is clearly the subject (their appointment, their game, their class trip) →
   that kid's category.
@@ -145,7 +150,7 @@ page is `"breakfast"`, etc. Ask if it's genuinely ambiguous.
 import ecal
 
 # --- events ---
-# timed event (local wall time)
+# timed event: pass local wall time. ecal converts to UTC internally.
 ecal.create_event("Dentist", "2026-03-14 15:30:00",
                   category="kid_a", location="Some Dental Office", reminders_min=(30,))
 
@@ -161,7 +166,8 @@ ecal.create_event("Piano lesson", "2026-09-15 16:00:00", category="kid_b",
 #                     isRecurring, routineSourceEventId, ...). Range auto-widened.
 ecal.events_on("2026-09-11")
 ecal.list_events("2026-09-07", "2026-09-13")
-ecal.find_duplicate("Picture Day", "2026-10-03")     # -> row or None (dedupe before create)
+ecal.find_duplicate("Dentist", "2026-03-14 15:30:00")  # timed: same local day + time
+ecal.find_duplicate("Picture Day", "2026-10-03")        # all-day: title within ±1 local day
 
 # batch create  (parallel; no batch endpoint exists server-side). Each spec is a
 # dict of create_event kwargs. Returns [(True, None), (False, "err..."), ...] in
@@ -177,11 +183,15 @@ ecal.create_events([
 # responses. Writes go through ecal, then re-sync the affected window.
 import ecal_cache as cache
 cache.sync()                                         # back 30d / forward 120d
-cache.events_on("2026-09-11")                        # cached read
-cache.find_duplicate("Picture Day", "2026-10-03")    # cached dedupe
+cache.events_on("2026-09-11")                        # cached read (local dates)
+cache.find_duplicate("Dentist", "2026-03-14 15:30:00")  # same rules as ecal.find_duplicate
 cache.create_events([{...}, {...}])                  # batch write + re-sync
-# Keep fresh: run cache.sync() periodically (cron) or before a batch of reads.
-# DB: ~/.ecalendar/cache.db (override with db_path=).
+# Freshness: the cache is a mirror. Before trusting a cached read, check
+# cache.last_sync(). If it is missing or older than 12 hours, or the date you
+# need is outside the last sync window (default 30 days back / 120 forward),
+# call cache.sync() first (or use ecal.list_events / ecal.find_duplicate).
+# After a write that did not go through cache.create_event(s), sync before the
+# next cached read. DB: ~/.ecalendar/cache.db (override with db_path=).
 
 # edit  (all fields, like create; needs the eventId)
 ecal.edit_event(event_id, "Dentist (moved)", "2026-03-14 16:00:00", category="kid_a")
@@ -207,11 +217,27 @@ ecal.delete_task(task_event_id)                                # series=True if 
 # --- notes ---  (need ECALENDAR_INSTANCE set)
 ecal.create_note("Title", "plain body\nsecond line",
                  image_paths=["/path/to/flyer.jpg"])   # images optional, max 8
+# Images over ~800KB are shrunk before upload. That uses macOS `sips` when it
+# is on PATH; if sips is missing or fails and Pillow is installed, Pillow is
+# the fallback. If neither is available, shrink the file first (or pip install
+# Pillow) — the attachment is skipped with a warning.
 ecal.update_note(server_note_id, content="revised body")
 ecal.delete_note(server_note_id)                        # or archive_only=True
 ```
 
 Full endpoint spec (recurrence units, task model, every request body): `ecalendar-api.md`.
+
+## Cache freshness
+
+`ecal_cache` is a mirror, not the calendar. Before trusting `cache.events_on` or
+`cache.find_duplicate`:
+
+- If `cache.last_sync()` is missing or older than **12 hours**, run `cache.sync()`
+  first.
+- If the date you need is outside the last sync window (default 30 days back, 120
+  forward), sync a wider range or call `ecal.list_events` / `ecal.find_duplicate`.
+- After any write that did not go through `cache.create_event` / `cache.create_events`,
+  sync before the next cached read.
 
 ## API quirks (already handled by `ecal.py`, FYI)
 
@@ -231,10 +257,19 @@ Full endpoint spec (recurrence units, task model, every request body): `ecalenda
   does this). App-native event ids are stable.
 - `/app/event/add` returns `{"code":200,"data":null}` — **no event id**. Dedupe via
   `find_duplicate` / `events_on`.
-- Event times: `create_event` sends local wall time + a `zone` offset (auto-picked per
-  date). Times read back from `list_events` may be local (app-created) or UTC
-  (externally-synced calendars), so `find_duplicate` matches on title within ±1 day
-  rather than on exact time.
+- Timed `create_event` / `edit_event` take **local wall time**. The helper converts
+  that to UTC on the wire (the API stores UTC; the app shows the account zone) and
+  sends `zone` for the local date. Do not pre-convert. `originStartDatetime` /
+  `originEndDatetime` on an edit are the exception: pass them exactly as listed.
+- All-day events, task due times, and meal-plan times are sent as the local calendar
+  date (`00:00:00` / `23:59:59`) plus `zone` / `addZone`, **not** shifted to UTC.
+  That is an assumption — if an all-day event, chore, or meal shows up on the wrong
+  day, it needs a device check (see `ecalendar-api.md`).
+- Reads compare **local** dates. `list_events` / `events_on` / the cache convert a
+  timed row's UTC `startDatetime` before filtering. `find_duplicate` for a timed
+  event also requires the local clock time (within 15 minutes), so a weekly series
+  doesn't match the wrong instance. All-day dedupe is title within ±1 local day.
+- `dateDescription` on a row is the reliable "what the app shows" check.
 - All-day events accept exactly one reminder, `timeUnit` must be `minute`
   (`create_event` uses a 9 AM popup).
 - Whole-series delete uses the series-root `eventId`
