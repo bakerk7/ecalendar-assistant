@@ -250,6 +250,48 @@ body{background:#fdf8f1;font-family:"Nunito","Quicksand","Inter",Roboto,Helvetic
 .month .day.more::after{content:'+';font-size:.8vw;bottom:.15vw;right:.25vw;padding:0 .35vw;line-height:1.2}
 .seg button{white-space:nowrap}
 .ov .box{height:70vh}
+/* ---- compact rows for busy days (4-5 items) in week view */
+.week .busy .evs>*+*{margin-top:.3vw}
+.week .busy>.evs{margin-top:.45vw}
+.week .busy .ev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:1.15vw;line-height:1.3;padding:.35vw .6vw .35vw .9vw;border-radius:.7vw;min-height:0}
+.week .busy .ev b{font-size:1vw;margin-right:.35vw}
+.week .busy .ev .who{display:none}
+.week .busy .ev.nx{white-space:normal;font-size:1.4vw;padding:1.6vw .8vw .5vw .9vw;line-height:1.15}
+.week .busy .ev.nx b{display:inline;font-size:1.15vw;margin:0 .4vw 0 0}
+.week .busy .ev.nx .who{display:block;font-size:.85vw}
+.week .busy .nxb{top:.4vw;font-size:.75vw;padding:.1vw .5vw}
+.week .busy .dh strong{font-size:2.2vw}.week .busy.today .dh strong{font-size:2.4vw}
+.week .busy .ev.nx{font-size:1.3vw;padding:1.45vw .8vw .4vw .9vw}
+.week .busy .ev.nx .who{display:none}
+.week .busy .nxb{top:.3vw}
+.week .busy .evs>*+*{margin-top:.25vw}
+.week .busy .ev{padding:.3vw .6vw .3vw .9vw}
+.week .busy .dh{margin-bottom:-.1vw}
+.sum .row{padding:.12vw .2vw}
+.sum .row i{width:1.1vw;height:1.1vw}
+.dayv .ev.nx{padding-top:2.9vw}.dayv .nxb{font-size:1vw;top:.8vw;left:1.6vw}
+/* ---- C: sidebar live doorbell feed (replaces Up next) */
+.up.cam{-webkit-box-flex:0;flex:0 0 auto;max-height:none;padding:.7vw;cursor:pointer}
+.cf{position:relative;width:100%;height:12.6vw;border-radius:1.4vw;overflow:hidden;background:#2d2a3e;box-shadow:0 0 0 .25vw #fff,0 0 0 .45vw #ff7a59}
+.cf iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;opacity:0;-webkit-transition:opacity .4s;transition:opacity .4s}
+.cam.ok .cf iframe{opacity:1}
+.cph{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cfc8e0;font-size:1.05vw;font-weight:700;background:#2d2a3e;background:linear-gradient(135deg,#3a3550,#2d2a3e)}
+.cph .ci{font-size:2.6vw;line-height:1;margin-bottom:.5vw;opacity:.8}
+.cam.ok .cph{display:none}
+.cf .live{position:absolute;top:.6vw;left:.6vw;z-index:2;background:#ff3b3b;color:#fff;font-size:.8vw;font-weight:800;letter-spacing:.06vw;padding:.15vw .6vw;border-radius:2vw;box-shadow:0 .15vw 0 #c41f1f;display:none}
+.cam.ok .cf .live{display:block}
+.cf .cl{position:absolute;bottom:.6vw;left:.6vw;z-index:2;background:rgba(255,255,255,.92);color:#2d2a3e;font-size:1vw;font-weight:800;padding:.2vw .8vw;border-radius:2vw}
+.cf{height:10.4vw}
+.cb{min-height:2.6vw;padding:.25vw .6vw;margin-bottom:.28vw;font-size:1.15vw}
+.cb .bx{width:1.95vw;height:1.95vw;font-size:1.05vw}
+.kid{padding:.45vw .55vw .5vw}
+.kid .kh{font-size:1.3vw;margin-bottom:.25vw}.kid .kh i{width:2vw;height:2vw;font-size:1.05vw}
+.kid .kh .st{font-size:1.05vw;padding:.1vw .6vw}
+.ch>*+*{margin-top:.4vw}
+.dayv .ev{font-size:1.5vw;padding:.75vw 1.2vw .75vw 1.5vw}
+.dayv .ev .who{font-size:.9vw}
+.dayv .ev.nx{padding-top:2.5vw}
+.cf{height:9.6vw}.kids{padding-bottom:0}
 </style></head><body>
 <div class="top"><div class="time" id="time">--:--</div><div class="date" id="date"></div>
 <div class="hchips" id="hchips"></div><button class="addb" id="addb">+ Add</button><!-- reserved: Home Assistant status chips -->
@@ -264,7 +306,7 @@ body{background:#fdf8f1;font-family:"Nunito","Quicksand","Inter",Roboto,Helvetic
  </div>
  <div class="side">
   <div class="ch" id="chp"><h3>Chores · Today <small id="chmsg">tap to check off</small></h3><div class="kids" id="kids"><div class="empty">Loading…</div></div></div>
-  <div class="up"><h3>Up next · Today</h3><div id="agenda"></div></div>
+  <div class="up cam" id="camp"><div class="cf" id="camf"><div class="cph" id="camph"><span class="ci">📷</span><span id="camtx">Connecting to front door…</span></div><span class="live">● LIVE</span><span class="cl">Front door</span></div></div><div class="hide"><div id="agenda"></div></div>
  </div>
 </div>
 <div class="foot" id="foot"></div>
@@ -341,7 +383,7 @@ function render(){const [s,e]=rangeFor(),list=cache[s+'|'+e];const t=today(),g=$
  if(!list){g.innerHTML='<div class="empty">Loading…</div>';return}
  const n=view==='day'?1:view==='week'?7:42;let h='';
  for(let i=0;i<n;i++){const d=add(s,i),evs=eventsOn(list,d);const other=view==='month'&&d.slice(5,7)!==anchor.slice(5,7);
-  h+=`<div class="day${d===t?' today':''}${other?' other':''}"><div class="dh"><span>${fmt(d,{weekday:view==='day'?'long':'short'})}</span>${view!=='month'?dayWx(d):''}<strong>${fmt(d,{day:'numeric'})}</strong></div><div class="evs">${dayBody(d,evs,t)}</div></div>`}
+  h+=`<div class="day${d===t?' today':''}${view==='week'&&evs.length>3?' busy':''}${other?' other':''}"><div class="dh"><span>${fmt(d,{weekday:view==='day'?'long':'short'})}</span>${view!=='month'?dayWx(d):''}<strong>${fmt(d,{day:'numeric'})}</strong></div><div class="evs">${dayBody(d,evs,t)}</div></div>`}
  if(view==='week'){const cnt={};let tot=0;for(let i=0;i<7;i++)for(const ev of eventsOn(list,add(s,i))){tot++;for(const p of (ev.people.length?ev.people:['Family']))cnt[p]=(cnt[p]||0)+1}
   h+=`<div class="day sum"><div class="dh"><span>Next 7 days</span><strong>${tot}</strong></div><div class="evs">${cfg.people.filter(p=>cnt[p.name]).map(p=>`<div class="row"><i style="background:${pc(p)}"></i>${esc(p.name)}<b>${cnt[p.name]}</b></div>`).join('')||'<div class="empty">Nothing scheduled</div>'}</div></div>`}
  g.innerHTML=h;
@@ -408,14 +450,26 @@ $('aSave').onclick=async()=>{if(addBusy)return;const m=$('aMsg');m.className='ms
 
 let ovTimer=null,seenRing=undefined;
 const camHost=u=>(u||'').replace('{host}',location.hostname);
-function openCam(ring){const c=cfg.camera||{};if(!c.url)return;
+function openCam(ring){const c=cfg.camera||{};if(!c.url)return;sideCamOff();
  $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
  if(!$('ovbox').querySelector('iframe')){const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay; fullscreen';
   f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.style.pointerEvents='none';$('ovbox').prepend(f)}
  wake(120000);$('ov').classList.add('on');clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
-function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f)f.remove()}
+function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f)f.remove();nightTick()}
 function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring (no stream is loaded until a ring)
 $('ov').onclick=closeCam;
+// sidebar live doorbell feed: same cfg.camera.url as the ring overlay; muted, non-interactive, off at night / while overlay is open
+let sideF=null,sideT=null,sideAt=0,camRetry=0;
+function camMsg(t){$('camtx').textContent=t}
+function sideCamOn(){const c=cfg.camera||{};if(!c.url){camMsg('No camera configured');return}
+ if(sideF||Date.now()<camRetry)return;
+ camMsg('Connecting to front door…');$('camp').className='up cam';
+ const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay';f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.setAttribute('tabindex','-1');f.setAttribute('aria-hidden','true');f.style.pointerEvents='none';
+ f.onload=function(){clearTimeout(sideT);if(sideF===f)$('camp').className='up cam ok'};
+ clearTimeout(sideT);sideT=setTimeout(function(){if(sideF===f&&$('camp').className.indexOf(' ok')<0){sideCamOff();camRetry=Date.now()+30000;camMsg('Camera unavailable · retrying soon')}},15000);
+ $('camf').insertBefore(f,$('camf').firstChild);sideF=f;sideAt=Date.now()}
+function sideCamOff(){clearTimeout(sideT);if(sideF){sideF.remove();sideF=null}$('camp').className='up cam'}
+$('camp').onclick=function(){openCam(false)};
 async function pollRing(){try{const d=await getJSON('api/doorbell');
   if(seenRing===undefined)seenRing=d.last_ring;
   else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;openCam(true)}}catch(e){}}
@@ -449,6 +503,7 @@ function isNight(){const n=cfg.night||{start:'21:00',end:'06:00'},p=partsInTZ(ne
  if(location.hash==='#night')return true;return a<=b?(m>=a&&m<b):(m>=a||m<b)}
 function wake(ms){wakeUntil=Date.now()+(ms||120000);nightTick()}
 function nightTick(){const on=isNight()&&Date.now()>wakeUntil&&!$('ov').classList.contains('on');$('night').classList.toggle('on',on);
+ if(on||$('ov').classList.contains('on'))sideCamOff();else{if(sideF&&Date.now()-sideAt>3600000)sideCamOff();sideCamOn()}
  if(on){const d=new Date();$('ntime').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});$('ndate').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric'})}}
 $('night').addEventListener('click',e=>{e.stopPropagation();wake(120000)});
 document.addEventListener('touchstart',()=>{if(!$('night').classList.contains('on')&&isNight())wake(120000)},{passive:true});
