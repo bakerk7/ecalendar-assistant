@@ -83,6 +83,14 @@ def make_router(run, cache, parse_day) -> APIRouter:
         return FileResponse(os.path.join(STATIC, "dashboard.html"),
                             headers={"Cache-Control": "no-cache"})
 
+    @r.get("/dashboard/app.apk")
+    def kiosk_apk():
+        path = os.path.join(STATIC, "app.apk")
+        if not os.path.isfile(path):
+            raise HTTPException(404, "app.apk not found")
+        return FileResponse(path, media_type="application/vnd.android.package-archive",
+                            filename="FamilyDashboard.apk", headers={"Cache-Control": "no-cache"})
+
     @r.get("/dashboard/api/config")
     def config():
         cats = cache.get_or_set("categories", lambda: run(lambda t: ecal.list_categories(t)))
