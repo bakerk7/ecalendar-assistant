@@ -2,87 +2,8 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Baker Family</title>
-<style>
-*{box-sizing:border-box;margin:0}
-html,body{height:100%}
-body{font-family:"Inter","Nunito Sans","Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f4f1ec;color:#1f2933;display:flex;flex-direction:column;padding:1.4vw 1.6vw;overflow:hidden;font-size:12px;user-select:none;-webkit-font-smoothing:antialiased}
-button{font-family:inherit}
-/* ---------- header */
-.top{flex:0 0 auto;min-height:6.2vw;display:flex;align-items:center;padding:0 .4vw}
+<style>*{box-sizing:border-box;margin:0}
 .time{white-space:nowrap;font-size:3.9vw;font-weight:300;letter-spacing:-.15vw;line-height:1;font-variant-numeric:tabular-nums;color:#1f2933}
-.date{font-size:1.45vw;color:#6b7280;font-weight:500;line-height:1.25;max-width:19vw}
-.wx{margin-left:auto;font-size:1.5vw;display:flex;align-items:center;background:#fff;border-radius:1.2vw;padding:.6vw 1.2vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.wx .ic{font-size:2.6vw;line-height:1}.wx b{font-size:2vw;font-weight:600}
-.wx .hl{color:#6b7280;font-size:1.15vw;white-space:nowrap}.wx span{white-space:nowrap}
-.hchips{display:flex;align-items:center;min-width:0}.hchips:empty{display:none}
-.hc{display:flex;align-items:center;font-size:1vw;font-weight:600;padding:.45vw .9vw;border-radius:2vw;white-space:nowrap;background:#e3efe6;color:#2f6b45}
-.hc.warn{background:#fbecd2;color:#8a5a12;border:.12vw solid #e7b25c}.hc.info{background:#ebe7e0;color:#57534e}
-.addb{flex:none;border:0;background:#1f2933;color:#fff;font-weight:700;font-size:1.45vw;padding:.9vw 1.9vw;border-radius:3vw;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.08);min-height:4.2vw;letter-spacing:.02vw}
-.addb:active{-webkit-transform:scale(.97);transform:scale(.97)}
-/* ---------- layout */
-.main{flex:1;display:flex;min-height:0}
-.cal{flex:1;min-width:0;background:#fff;border-radius:1.6vw;padding:1.3vw 1.4vw 1.4vw;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.bar{display:flex;align-items:center}
-.bar h2{font-size:1.6vw;font-weight:700;margin-right:auto;white-space:nowrap;letter-spacing:-.02vw}
-.nav{font-size:1.6vw;background:#f4f1ec;border:0;border-radius:50%;width:2.7vw;height:2.7vw;cursor:pointer;color:#374151;line-height:1}
-.nav.tb{width:auto;border-radius:3vw;padding:0 1.1vw;font-size:1vw;font-weight:700}
-.tg{display:flex;background:#f4f1ec;border-radius:3vw;padding:.3vw}
-.tg button{border:0;background:none;padding:.6vw 1.1vw;font-size:1.05vw;border-radius:3vw;font-weight:600;color:#6b7280;cursor:pointer}
-.tg .on{background:#fff;color:#1f2933;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.pfs{display:flex;flex-wrap:nowrap;min-width:0;overflow:hidden}.bar .nav,.bar .tg{flex:none}
-.pf{display:flex;align-items:center;font-size:.9vw;font-weight:600;background:none;border-radius:2vw;padding:.2vw .5vw .2vw .2vw;white-space:nowrap;border:0;cursor:pointer;color:#374151}
-.pf i{width:1.8vw;height:1.8vw;border-radius:50%;color:#fff;font-style:normal;font-weight:700;display:-webkit-box;display:flex;align-items:center;justify-content:center;font-size:1vw}
-.pf.off{opacity:.3}
-/* ---------- grid */
-.grid{flex:1;display:grid;grid-gap:.8vw;gap:.8vw;min-height:0}
-.week{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
-.day{background:#faf8f5;border-radius:1.1vw;padding:.8vw .8vw .7vw;display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
-.today{background:#fff;border:.18vw solid #1f2933}
-.dh{display:flex;align-items:baseline;font-size:1.05vw;color:#6b7280;padding:0 .2vw;font-weight:600;text-transform:uppercase;letter-spacing:.06vw}
-.dh>span:first-child{-webkit-box-ordinal-group:2;order:1}
-.dh strong{-webkit-box-ordinal-group:1;order:0;font-size:2.3vw;color:#1f2933;font-weight:700;letter-spacing:-.05vw;margin-right:.5vw;line-height:1}
-.dh .dw{-webkit-box-ordinal-group:3;order:2;font-size:1vw;color:#6b7280;margin-left:auto;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:500}
-.today .dh strong{background:#1f2933;color:#fff;border-radius:.7vw;padding:.15vw .55vw .25vw}
-.today .dh>span:first-child::after{content:' · Today';color:#1f2933}
-.evs{display:flex;flex-direction:column;overflow-y:auto;min-height:0;scrollbar-width:none}
-.ev{background:#fff;border-left:.4vw solid var(--c);border-radius:.6vw;padding:.55vw .7vw;font-size:1.1vw;line-height:1.28;word-break:break-word;font-weight:600;color:#1f2933;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.ev b{margin-right:.3vw;font-size:1vw;font-weight:700;color:var(--c);letter-spacing:.02vw}
-.ev.ad{background:var(--c);color:#fff;border-left-color:transparent;padding:.45vw .7vw;box-shadow:none}
-.ev .who{font-size:.8vw;font-weight:500;opacity:.6;display:block;margin-top:.1vw}
-.ev.ad .who{opacity:.85}
-.day.sum{background:#fff;border:.14vw solid #e8e3db}
-.sum .dh strong{font-size:2.3vw}
-.sum .row{display:flex;align-items:center;font-size:1.1vw;color:#374151;padding:.25vw .2vw;font-weight:600}
-.sum .row i{width:1vw;height:1vw;border-radius:50%;flex:none}.sum .row b{margin-left:auto;font-size:1.2vw}
-.day.more::after{content:'more ↓';position:absolute;bottom:.4vw;right:.7vw;font-size:.8vw;font-weight:700;color:#6b7280;background:rgba(255,255,255,.95);padding:.15vw .55vw;border-radius:1vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.month{grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(0,1fr)}
-.month .day{padding:.4vw;border-radius:.7vw}.month .dh strong{font-size:1.15vw}.month .dh{font-size:.75vw}
-.month .today .dh strong{padding:.05vw .35vw}.month .today .dh>span:first-child::after{content:''}
-.month .ev{font-size:.78vw;padding:.15vw .4vw;border-left-width:.25vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:none}
-.month .ev b{display:inline;font-size:.75vw}.month .ev .who{display:none}.month .other{opacity:.4}
-.wkh{display:grid;grid-template-columns:repeat(7,1fr);grid-gap:.8vw;font-size:.9vw;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08vw;text-align:center;margin-bottom:-.3vw}
-.dayv{grid-template-columns:1fr}.dayv .ev{font-size:1.6vw;padding:1vw 1.2vw}.dayv .ev b{font-size:1.5vw}.dayv .dh strong{font-size:2.6vw}
-.empty{color:#9ca3af;font-size:1vw;padding:.3vw}
-/* ---------- sidebar */
-.side{width:24vw;display:flex;flex-direction:column;min-height:0}
-.side h3{font-size:1.35vw;font-weight:700;display:flex;justify-content:space-between;align-items:baseline}
-.side h3 small{font-size:.85vw;color:#9ca3af;font-weight:500}
-.ch,.up{background:#fff;border-radius:1.6vw;padding:1.2vw;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(0,0,0,.08);min-height:0;overflow:hidden}
-.ch{flex:0 1 auto;max-height:68%}.up{flex:1}
-.kids{display:flex;flex-direction:column;flex:1 1 auto;-webkit-overflow-scrolling:touch;padding-bottom:.4vw;overflow-y:auto;min-height:0;scrollbar-width:none}
-.kid .kh{display:flex;align-items:center;font-weight:800;font-size:1.3vw;margin-bottom:.45vw;color:var(--c)}
-.kid .kh i{width:1.1vw;height:1.1vw;border-radius:50%}
-.kid .kh .st{margin-left:auto;background:#fdf1d6;color:#8a5a12;border-radius:2vw;padding:.2vw .75vw;font-size:1.15vw;font-weight:800}
-.cb{display:flex;align-items:center;width:100%;min-height:3.4vw;margin-bottom:.45vw;border:0;border-radius:1vw;padding:.5vw .8vw;font-size:1.15vw;font-weight:600;text-align:left;cursor:pointer;color:#1f2933;background:var(--t,#f4f1ec)}
-.cb .bx{flex:none;width:2.3vw;height:2.3vw;border-radius:50%;border:.2vw solid var(--c);background:#fff;display:-webkit-box;display:flex;align-items:center;justify-content:center;font-size:1.25vw;font-weight:800;color:#fff}
-.cb.done{opacity:.6}.cb.done .bx{background:var(--c)}.cb.done .tt{text-decoration:line-through}
-.cb .sv{margin-left:auto;color:#a16207;white-space:nowrap;font-weight:700}.cb.busy{opacity:.3}.cb.ro .bx{border-style:dashed}
-.agl{display:flex;flex-direction:column}
-.ag{display:flex;align-items:center;padding:.6vw .2vw;font-size:1.15vw;font-weight:600;border-bottom:.08vw solid #efebe5}
-.ag::before{content:'';flex:none;width:.45vw;align-self:stretch;border-radius:.3vw;background:var(--c)}
-.ag b{min-width:5.4vw;white-space:nowrap;color:#6b7280;font-weight:700;font-size:1vw}.ag.past{opacity:.45}
-.ag:last-child{border-bottom:0}
-/* ---------- overlays */
 #night{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:40;background:#05070b;background:radial-gradient(ellipse at 50% 45%,#0c111a 0,#030406 70%);display:none;align-items:center;justify-content:center;flex-direction:column}
 #night.on{display:flex}
 #night .nt{text-align:center;font-size:13vw;font-weight:200;letter-spacing:-.4vw;line-height:1;font-variant-numeric:tabular-nums;color:#4a3f33}
@@ -98,13 +19,11 @@ button{font-family:inherit}
 .ov iframe{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;border:0;overflow:hidden;display:block;background:#000}
 .ov .live{position:absolute;top:1.2vw;left:1.2vw;background:#dc2626;color:#fff;font-weight:800;font-size:1vw;letter-spacing:.08vw;padding:.35vw .8vw;border-radius:2vw;z-index:2}
 .ov .hint{color:#fff;background:rgba(255,255,255,.12);font-size:1.15vw;font-weight:600;padding:.7vw 1.8vw;border-radius:3vw}
-/* ---------- add modal */
 #am{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:60;background:rgba(31,41,51,.55);display:none;align-items:flex-start;justify-content:center;padding-top:2vh}
 #am.on{display:flex}
 .amb{width:62vw;max-height:94vh;overflow-y:auto;background:#fff;border-radius:1.8vw;padding:1.8vw 2.2vw;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .amh{display:flex;align-items:center}.amh h2{font-size:2.1vw;margin-right:auto}
 .amx{border:0;background:#f4f1ec;border-radius:50%;width:4.2vw;height:4.2vw;font-size:2vw;cursor:pointer;color:#374151}
-.seg{display:flex;background:#f4f1ec;border-radius:3vw;padding:.35vw}.seg button{flex:1;border:0;background:none;font-size:1.5vw;font-weight:700;padding:.9vw 2vw;border-radius:3vw;color:#6b7280;cursor:pointer;min-height:4vw}.seg .on{background:#fff;color:#1f2933;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .fl{display:flex;flex-direction:column}.fl>label{font-size:1.05vw;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06vw}
 .ti{font-size:1.6vw;padding:.9vw 1.1vw;border:.15vw solid #e5e0d8;border-radius:1vw;width:100%;min-height:4vw;font-family:inherit;color:#1f2933;background:#faf8f5}
 .ti:focus{outline:none;border-color:#1f2933;background:#fff}
@@ -116,207 +35,137 @@ button{font-family:inherit}
 .amf{display:flex;align-items:center;margin-top:.4vw}.amf .msg{margin-right:auto;font-size:1.2vw;color:#b91c1c}.amf .msg.ok{color:#2f6b45}
 .btn{border:0;border-radius:3vw;font-size:1.5vw;font-weight:800;padding:1vw 2.4vw;cursor:pointer;min-height:4.2vw}.btn.pri{background:#1f2933;color:#fff}.btn.sec{background:#f4f1ec;color:#374151}.btn:disabled{opacity:.45}
 .stp{display:flex;align-items:center}.stp button{width:4vw;height:4vw;font-size:2vw;border:0;border-radius:50%;background:#f4f1ec;cursor:pointer}.stp b{font-size:1.7vw;min-width:5vw;text-align:center}
-/* Chromium 74 (Dragon Touch WebView): no flex `gap`, so sibling margins emulate it */
-@media (min-width:1200px){body{font-size:1vw}}@media (min-width:2200px){body{font-size:22px}}
-body>.main{margin-top:1.2vw}
-.top>*+*{margin-left:1.6vw}.top>.hchips{margin-left:auto}.hchips:empty+.addb{margin-left:auto}.top>.addb{margin-left:1.4vw}.top>.wx{margin-left:1.4vw}
-.wx>*+*{margin-left:.7vw}.main>*+*{margin-left:1.2vw}
-.cal>*+*{margin-top:1vw}.cal>#wkh:empty+.grid{margin-top:0}
-.bar>*+*{margin-left:.6vw}.pfs>*+*{margin-left:0}.pf>*+*{margin-left:.35vw}.sum .row>*+*{margin-left:.6vw}.sum .row>b{margin-left:auto}
-.day>*+*,.evs>*+*{margin-top:.5vw}.day>.evs{margin-top:.7vw}.month .day>*+*,.month .evs>*+*{margin-top:.25vw}
-.side>*+*{margin-top:1.2vw}.ov>*+*{margin-top:1.4vw}.ov .box>.live{margin:0}
-.up>*+*,.ch>*+*{margin-top:.8vw}.agl>*+*{margin-top:0}
-.ag>*+*{margin-left:.8vw}.hchips>*+*{margin-left:.5vw}.hc>*+*{margin-left:.35vw}
-.kids>*+*{margin-top:1vw}.kid .kh>*+*{margin-left:.5vw}.kid .kh>.st{margin-left:auto}
-.cb>*+*{margin-left:.8vw}.cb>.sv{margin-left:auto}
 .amb>*+*{margin-top:1.2vw}.amh>*+*{margin-left:1vw}.fl>*+*{margin-top:.5vw}.chip>*+*{margin-left:.6vw}
 .row2>*+*{margin-left:1vw}.amf>*+*{margin-left:1vw}.amf>.msg{margin-right:auto}.stp>*+*{margin-left:.6vw}
-.kids::-webkit-scrollbar,.evs::-webkit-scrollbar{display:none}
 .hide{display:none!important}
-.foot{position:fixed;bottom:.35vw;right:1.8vw;font-size:.7vw;color:#a8a29e}.foot.err{color:#b91c1c}
-.kid .kh i{font-size:0}
-/* ---- shared hero-today + larger text (B/C) */
-.week{grid-template-columns:minmax(0,1.45fr) repeat(3,minmax(0,1fr))}
-.ev{font-size:1.3vw;line-height:1.25;padding:.65vw .8vw}
-.ev b{font-size:1.15vw}
-.ev .who{font-size:.9vw}
-.dh{font-size:1.15vw}.dh strong{font-size:2.6vw}
-.today .dh strong{font-size:3vw}
-.today .ev{font-size:1.4vw}
-.ev.nx{position:relative;font-size:1.75vw;padding:1vw 1vw .9vw;line-height:1.2}
-.ev.nx b{display:block;font-size:1.3vw;margin-bottom:.15vw}
-.ev.nx .who{font-size:1vw}
-.nxb{position:absolute;top:.7vw;right:.7vw;font-style:normal;font-size:.85vw;font-weight:800;letter-spacing:.08vw;text-transform:uppercase;padding:.2vw .6vw;border-radius:2vw}
-.free{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;flex:1;border-radius:1vw;padding:1vw}
-.free .fi{font-size:4vw;line-height:1}.free b{font-size:1.8vw;margin-top:.6vw}.free span{font-size:1.15vw;margin-top:.2vw}
-.free.sm{flex:0 0 auto;font-size:1vw;font-weight:600;padding:.4vw;align-items:flex-start}
-.evs{-webkit-box-flex:1;flex:1}
-.cb{font-size:1.3vw;min-height:3.8vw}
-.kid .kh{font-size:1.45vw}
-.ag{font-size:1.3vw}.ag b{font-size:1.1vw;min-width:6vw}
-.side h3{font-size:1.5vw}
-.sum .row{font-size:1.25vw}
-.kid .kh i{width:2.4vw;height:2.4vw;color:#fff;font-style:normal;font-size:1.2vw;font-weight:800;display:-webkit-box;display:flex;align-items:center;justify-content:center}
-.evs>*{-ms-flex-negative:0;flex-shrink:0}
-.ev.pastev{opacity:.45}
-.ev.nx{padding-top:2.2vw}.nxb{top:.6vw;left:1vw;right:auto}
-/* ===== Direction C: colorful kid-friendly */
-body{background:#fdf8f1;font-family:"Nunito","Quicksand","Inter",Roboto,Helvetica,Arial,sans-serif}
 .time{font-weight:800;color:#2d2a3e;letter-spacing:-.1vw}
-.date{color:#7c7891;font-weight:700}
-.wx,.cal,.ch,.up{border-radius:2vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.addb{background:#ff7a59;box-shadow:0 1px 2px rgba(0,0,0,.08);border-radius:3vw}
-.bar h2{color:#2d2a3e;font-weight:800}
-.nav,.tg,.seg,.amx,.btn.sec,.stp button{background:#f6efe4}
-.tg .on{background:#fff}
-.pf i{width:2.2vw;height:2.2vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.day{background:#f8f4ee;border-radius:1.5vw}
-.week .day:nth-child(1){background:#eaf2ff}.week .day:nth-child(2){background:#fff0f6}.week .day:nth-child(3){background:#f2eeff}.week .day:nth-child(4){background:#e8f7f0}
-.week .day:nth-child(5){background:#fff5e6}.week .day:nth-child(6){background:#eaf7fb}.week .day:nth-child(7){background:#fdf0ea}
-.dh{color:#7c7891;font-weight:800}.dh strong{color:#2d2a3e;font-weight:800}
-.today{background:#fff!important;border:.3vw solid #ff7a59}
-.today .dh strong{background:#ff7a59;border-radius:1vw}.today .dh>span:first-child::after{color:#ff7a59}
-.ev{border-radius:1vw;border-left:0;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08);padding:.7vw .9vw .7vw 1.1vw;position:relative;overflow:hidden;font-weight:700}
-.ev::before{content:'';position:absolute;left:0;top:0;bottom:0;width:.5vw;background:var(--c)}
-.ev.ad{background:var(--c)}.ev.ad::before{display:none}
-.ev.nx{background:var(--t);border:.2vw solid var(--c)}
-.nxb{background:var(--c);color:#fff}
-.free{background:#fff7e0;color:#8a6d1f;border-radius:1.4vw}.free b{color:#5c4a12}
-.free.sm{background:none;color:#b3aca0}
-.day.sum{background:#fff;border:.18vw solid #efe6d8}
-.sum .row i{width:1.3vw;height:1.3vw}
-.day.more::after{border-radius:2vw;background:#fff}
-.kid{background:var(--t);border-radius:1.6vw;padding:.8vw}
-.kids>*+*{margin-top:.8vw}
-.kid .kh{color:#2d2a3e;font-size:1.6vw}
-.kid .kh i{width:3.2vw;height:3.2vw;font-size:1.6vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.kid .kh .st{background:#ffd84d;color:#6b4c00;font-size:1.3vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.cb{background:#fff;border-radius:1.2vw;min-height:4vw;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.cb .bx{width:2.7vw;height:2.7vw;border-width:.25vw}
-.cb.done{opacity:.7}.cb.done .tt{color:#8b8798}
-.cb .sv{background:#fff6cc;color:#8a6400;padding:.15vw .55vw;border-radius:2vw}
-.ag{border-bottom:0;background:#faf6f0;border-radius:1vw;padding:.6vw .7vw}.agl>*+*{margin-top:.5vw}
-.btn.pri{background:#ff7a59}.chip.on{box-shadow:0 1px 2px rgba(0,0,0,.08)}
 #night .nt{color:#4a3a5c;font-weight:300}#night .nd{color:#2c2338}
 .ov .lbl{font-weight:800}
-.ch{max-height:72%}
-/* ---- C polish: chores fit without scrolling */
-.ch{-webkit-box-flex:1;flex:1 1 auto;max-height:none;padding:1vw 1vw .8vw}
-.up{-webkit-box-flex:0;flex:0 0 auto;max-height:24%;padding:1vw}
-.side>*+*{margin-top:.9vw}
-.up>*+*,.ch>*+*{margin-top:.5vw}
-.kid{padding:.55vw .6vw .6vw;border-radius:1.4vw}
-.kids>*+*{margin-top:.6vw}
-.kid .kh{font-size:1.4vw;margin-bottom:.4vw}
-.kid .kh i{width:2.6vw;height:2.6vw;font-size:1.35vw}
-.kid .kh .st{font-size:1.15vw}
-.cb{min-height:3.15vw;margin-bottom:.35vw;padding:.35vw .7vw;font-size:1.2vw;border-radius:1vw}
-.cb:last-child{margin-bottom:0}
-.cb .bx{width:2.3vw;height:2.3vw;font-size:1.2vw}
-.cb .sv{font-size:1vw}
-.ag{padding:.45vw .6vw;font-size:1.15vw}.ag b{font-size:1vw}
-/* ---- C doorbell: cream & playful */
 .ov{background:rgba(253,248,241,.97)}
-.ov .lbl{color:#2d2a3e;font-size:2.8vw;font-weight:800;background:#fff;padding:.8vw 2.2vw;border-radius:4vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.ov .lbl::before{content:'';width:3vw;height:3vw;margin-right:1vw;border-radius:50%;background:#ff7a59 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z'/%3E%3C/svg%3E") center/60% no-repeat;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .ov .box{border-radius:2.4vw;height:74vh;border:.5vw solid #fff}
-.ov .live{background:#ff3b3b;border-radius:3vw;font-size:1.1vw;padding:.4vw 1vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.ov .hint{background:#2d2a3e;color:#fff;font-size:1.3vw;font-weight:800;padding:.9vw 2.4vw;border-radius:4vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-/* ---- C month/day/add */
-.month .day{border-radius:.9vw}
-.month .day:nth-child(7n+1),.month .day:nth-child(7n){background:#fbf3e9}
-.month .today{border:.2vw solid #ff7a59}
-.month .ev{font-size:.85vw;padding:.15vw .45vw .15vw .7vw;border-radius:.5vw;box-shadow:none}
-.month .ev::before{width:.3vw}
-.dayv .day{background:#fff!important}
-.dayv .ev{font-size:1.8vw;padding:1.1vw 1.4vw 1.1vw 1.6vw}
 .amb{border-radius:2.4vw;background:#fffdf9}
 .amh h2{font-weight:800;color:#2d2a3e}
 .seg .on{color:#ff7a59}
 .ti{background:#fff;border-color:#efe6d8;border-radius:1.2vw}.ti:focus{border-color:#ff7a59}
 .chip{background:#fff;border-color:#efe6d8;font-weight:700}
 .chip.on{background:var(--c,#ff7a59);border-color:var(--c,#ff7a59)}
-/* chores fit v2 */
-.up{max-height:18%}
-.cb{min-height:2.8vw;padding:.3vw .65vw;margin-bottom:.3vw}
-.cb .bx{width:2.1vw;height:2.1vw}
-.kid .kh{font-size:1.35vw;margin-bottom:.3vw}.kid .kh i{width:2.2vw;height:2.2vw;font-size:1.15vw}
-.kids>*+*{margin-top:.5vw}
-.month .evs>*+*{margin-top:.2vw}
-.month .dh strong,.month .today .dh strong{font-size:1.2vw;padding:.05vw .4vw;border-radius:.5vw}
-.month .dh{font-size:.7vw}.month .dh .dw{display:none}
-.month .ev,.month .today .ev{font-size:.82vw;font-weight:700;padding:.12vw .4vw .12vw .6vw}
-.month .ev b{font-size:.75vw;margin-right:.2vw}
-.month .day.more::after{content:'+';font-size:.8vw;bottom:.15vw;right:.25vw;padding:0 .35vw;line-height:1.2}
 .seg button{white-space:nowrap}
 .ov .box{height:70vh}
-/* ---- compact rows for busy days (4-5 items) in week view */
-.week .busy .evs>*+*{margin-top:.3vw}
-.week .busy>.evs{margin-top:.45vw}
-.week .busy .ev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:1.15vw;line-height:1.3;padding:.35vw .6vw .35vw .9vw;border-radius:.7vw;min-height:0}
-.week .busy .ev b{font-size:1vw;margin-right:.35vw}
-.week .busy .ev .who{display:none}
-.week .busy .ev.nx{white-space:normal;font-size:1.4vw;padding:1.6vw .8vw .5vw .9vw;line-height:1.15}
-.week .busy .ev.nx b{display:inline;font-size:1.15vw;margin:0 .4vw 0 0}
-.week .busy .ev.nx .who{display:block;font-size:.85vw}
-.week .busy .nxb{top:.4vw;font-size:.75vw;padding:.1vw .5vw}
-.week .busy .dh strong{font-size:2.2vw}.week .busy.today .dh strong{font-size:2.4vw}
-.week .busy .ev.nx{font-size:1.3vw;padding:1.45vw .8vw .4vw .9vw}
-.week .busy .ev.nx .who{display:none}
-.week .busy .nxb{top:.3vw}
-.week .busy .evs>*+*{margin-top:.25vw}
-.week .busy .ev{padding:.3vw .6vw .3vw .9vw}
-.week .busy .dh{margin-bottom:-.1vw}
-.sum .row{padding:.12vw .2vw}
-.sum .row i{width:1.1vw;height:1.1vw}
-.dayv .ev.nx{padding-top:2.9vw}.dayv .nxb{font-size:1vw;top:.8vw;left:1.6vw}
-/* ---- C: sidebar live doorbell feed (replaces Up next) */
-.up.cam{-webkit-box-flex:0;flex:0 0 auto;max-height:none;padding:.7vw;cursor:pointer}
-.cf{position:relative;width:100%;height:12.6vw;border-radius:1.4vw;overflow:hidden;background:#2d2a3e;border:.25vw solid #fff}
-.cf iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;opacity:0;}
-.cam.ok .cf iframe{opacity:1}
-.cph{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cfc8e0;font-size:1.05vw;font-weight:700;background:#2d2a3e;background:linear-gradient(135deg,#3a3550,#2d2a3e)}
-.cph .ci{font-size:2.6vw;line-height:1;margin-bottom:.5vw;opacity:.8}
-.cam.ok .cph{display:none}
-.cf .live{position:absolute;top:.6vw;left:.6vw;z-index:2;background:#ff3b3b;color:#fff;font-size:.8vw;font-weight:800;letter-spacing:.06vw;padding:.15vw .6vw;border-radius:2vw;box-shadow:0 1px 2px rgba(0,0,0,.08);display:none}
-.cam.ok .cf .live{display:block}
-.cf .cl{position:absolute;bottom:.6vw;left:.6vw;z-index:2;background:rgba(255,255,255,.92);color:#2d2a3e;font-size:1vw;font-weight:800;padding:.2vw .8vw;border-radius:2vw}
-.cf{height:10.4vw}
-.cb{min-height:2.6vw;padding:.25vw .6vw;margin-bottom:.28vw;font-size:1.15vw}
-.cb .bx{width:1.95vw;height:1.95vw;font-size:1.05vw}
-.kid{padding:.45vw .55vw .5vw}
-.kid .kh{font-size:1.3vw;margin-bottom:.25vw}.kid .kh i{width:2vw;height:2vw;font-size:1.05vw}
-.kid .kh .st{font-size:1.05vw;padding:.1vw .6vw}
-.ch>*+*{margin-top:.4vw}
-.dayv .ev{font-size:1.5vw;padding:.75vw 1.2vw .75vw 1.5vw}
-.dayv .ev .who{font-size:.9vw}
-.dayv .ev.nx{padding-top:2.5vw}
-.cf{height:9.6vw}.kids{padding-bottom:0}
-/* snapshot feed (img) */
-.cf{border:.3vw solid #ff7a59}
-.cf img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:none}
-.cam.ok .cf img{display:block}
 .ov .box{border:.5vw solid #ff7a59}
-.week .busy .ev.nx{padding-top:1.3vw;padding-bottom:.25vw;border-width:.15vw}.week .busy .nxb{top:.2vw}
-.week .busy.today .evs>*+*{margin-top:.18vw}
+html,body{height:100%}
+body{font-family:"Inter","Roboto","Segoe UI",Helvetica,Arial,sans-serif;background:#fff;color:#1f2937;display:flex;overflow:hidden;font-size:.78vw;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;color:inherit}
+.rail{flex:none;width:3.3vw;background:#f7f8fa;border-right:1px solid #eceef2;display:flex;flex-direction:column;align-items:center;padding:.6vw 0}
+.rail button{width:2.4vw;height:2.4vw;border:0;background:none;border-radius:.6vw;font-size:1.25vw;line-height:1;cursor:pointer;margin-bottom:.55vw;position:relative;padding:0}
+.rail button.on{background:#e7efff}
+.rail button.on::before{content:'';position:absolute;left:-.45vw;top:.5vw;bottom:.5vw;width:.18vw;border-radius:.2vw;background:#2563eb}
+.rail .logo{font-size:1.3vw;margin-bottom:1vw}
+.rail .sp{flex:1}
+.app{flex:1;min-width:0;display:flex;flex-direction:column;padding:.5vw .9vw 0 .9vw}
+.tb{display:flex;align-items:center;height:2.6vw;flex:none}
+.tb>*+*{margin-left:1vw}
+.date{font-size:1.15vw;font-weight:500;color:#111827}
+.time{font-size:1.15vw;font-weight:500;color:#111827;font-variant-numeric:tabular-nums}
+.ib{border:0;background:none;cursor:pointer;font-size:1.05vw;color:#6b7280;padding:.2vw;line-height:1}
+.wx{display:flex;align-items:center;font-size:1.1vw;color:#111827}.wx .ic{margin-right:.35vw}.wx .tx,.wx .hl{display:none}
+.hchips{display:flex;align-items:center;margin-left:auto!important}.hc{font-size:.68vw;color:#4b5563;background:#f3f4f6;border-radius:1vw;padding:.2vw .6vw;margin-left:.4vw;white-space:nowrap}.hc.warn{background:#fff3e0;color:#9a5b00}.hc.bad{background:#fee2e2;color:#b91c1c}
+.pill{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:1vw;height:1.7vw;padding:0 .5vw;background:#fff;font-size:.72vw;color:#374151;cursor:pointer;position:relative}
+.pill select{border:0;background:none;font-size:.72vw;font-family:inherit;color:#374151;-webkit-appearance:none;appearance:none;padding-right:.9vw;cursor:pointer;outline:none}
+.pill .cv{position:absolute;right:.5vw;pointer-events:none;font-size:.6vw;color:#6b7280}
+.pill .ar{border:0;background:none;font-size:.95vw;color:#4b5563;cursor:pointer;padding:0 .25vw;line-height:1}
+.pill #range{border:0;background:none;font-size:.72vw;cursor:pointer;padding:0 .35vw;color:#374151;white-space:nowrap}
+.pill.flt.on{border-color:#2563eb;color:#2563eb}
+.wifi{font-size:.95vw;color:#16a34a}.wifi.err{color:#dc2626}
+#foot{font-size:.62vw;color:#9ca3af;white-space:nowrap}#foot.err{color:#dc2626}
+.fpop{position:absolute;top:2.1vw;right:0;z-index:20;background:#fff;border:1px solid #e5e7eb;border-radius:.6vw;padding:.4vw;display:none;width:11vw;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.fpop.on{display:block}
+.pf{display:flex;align-items:center;width:100%;border:0;background:none;font-size:.8vw;padding:.35vw .3vw;cursor:pointer;border-radius:.4vw;text-align:left}
+.pf i{width:1.2vw;height:1.2vw;border-radius:50%;color:#fff;font-style:normal;font-size:.62vw;font-weight:700;display:flex;align-items:center;justify-content:center;margin-right:.5vw}
+.pf::after{content:'✓';margin-left:auto;color:#2563eb;font-weight:700}.pf.off{color:#9ca3af}.pf.off::after{content:''}.pf.off i{opacity:.35}
+.mem{display:flex;flex-wrap:wrap;flex:none;margin:.25vw -.25vw .35vw}
+.mc{flex:1 1 0;min-width:0;max-width:22vw;display:flex;align-items:center;height:1.75vw;border-radius:.45vw;padding:0 .6vw 0 .25vw;margin:0 .25vw;border:0;cursor:pointer;background:var(--t);font-size:.82vw;font-weight:600;color:#1f2937;text-align:left}
+.mc i{flex:none;width:1.3vw;height:1.3vw;border-radius:50%;background:var(--c);color:#fff;font-style:normal;font-size:.66vw;font-weight:700;display:flex;align-items:center;justify-content:center;margin-right:.5vw;border:1px solid #fff}
+.mc span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc b{font-weight:500;font-size:.72vw;color:#6b7280;margin-left:.4vw}
+.mc.off{opacity:.4}
+.cal{flex:1;min-height:0;display:flex;flex-direction:column}
+#wkh{display:none}#wkh.wkh{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));font-size:.68vw;color:#6b7280;font-weight:600;padding:.2vw 0}
+#wkh.wkh div{padding-left:.5vw}
+.grid{flex:1;min-height:0;display:grid;border-top:1px solid #eceef2;border-left:1px solid #eceef2}
+.grid.week{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.grid.month{grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:repeat(6,minmax(0,1fr))}
+.grid.dayv{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+.day{border-right:1px solid #eceef2;border-bottom:1px solid #eceef2;display:flex;flex-direction:column;min-height:0;min-width:0;padding:.35vw .45vw .3vw;position:relative;background:#fff}
+.dh{display:flex;align-items:center;height:1.7vw;flex:none;padding:0 .15vw;margin-bottom:.25vw}
+.dh .dn{font-size:.95vw;font-weight:500;color:#111827;display:flex;align-items:center}
+.dh .dn b{font-weight:500;margin-left:.3vw}
+.today .dh .dn b{background:#1d4ed8;color:#fff;border-radius:50%;min-width:1.35vw;height:1.35vw;display:inline-flex;align-items:center;justify-content:center;font-size:.7vw;font-weight:600}
+.dh .dw{font-size:.68vw;color:#9ca3af;margin-left:.5vw;white-space:nowrap}
+.dh .ac{margin-left:auto;border:0;background:none;font-size:.66vw;color:#6b7280;cursor:pointer;padding:.2vw 0 .2vw .4vw;white-space:nowrap}
+.dh .ac em{font-style:normal;font-size:.9vw;margin-left:.35vw;color:#4b5563}
+.evs{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.ev{flex:none;display:flex;align-items:center;min-height:2.1vw;background:var(--t);border-radius:.35vw;padding:.22vw .4vw .22vw .55vw;margin-bottom:.3vw;position:relative;overflow:hidden}
+.ev::before{content:'';position:absolute;left:.18vw;top:.25vw;bottom:.25vw;width:.12vw;border-radius:.1vw;background:var(--c)}
+.ev .tx{flex:1;min-width:0;padding-left:.2vw}
+.ev .tl{display:block;font-size:.72vw;font-weight:500;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+.ev .sb{display:block;font-size:.6vw;color:#6b7280;line-height:1.3;margin-top:.1vw;white-space:nowrap}
+.ev .av{flex:none;display:flex;margin-left:.3vw}
+.ev .av i{width:1.05vw;height:1.05vw;border-radius:50%;background:var(--c);color:#fff;font-style:normal;font-size:.52vw;font-weight:700;display:flex;align-items:center;justify-content:center;border:1px solid #fff;margin-left:-.3vw}
+.ev .ck{flex:none;width:1vw;height:1vw;border-radius:50%;border:1px solid #9ca3af;background:#fff;margin-left:.35vw;cursor:pointer;padding:0;font-size:.6vw;line-height:1;color:#fff}
+.ev.dn .ck{background:#22c55e;border-color:#22c55e}
+.ev.dn .tl{color:#6b7280;text-decoration:line-through}
+.ev.pastev{opacity:.55}
+.ev .nxb{font-style:normal;font-size:.5vw;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.03vw;margin-right:.3vw}
+.ev.nx{border:1px solid #93b4f5}
+.noev{margin:auto;font-size:.68vw;color:#9ca3af}
+.day.nxw{cursor:pointer}.day.nxw .dh .dn{font-weight:500}
+.day.nxw .noev{color:#6b7280}
+.more::after{content:'more…';position:absolute;right:.5vw;bottom:.1vw;font-size:.56vw;color:#6b7280;background:#fff;padding:0 .2vw}
+.month .day{padding:.2vw .3vw}.month .dh{height:1.2vw;margin-bottom:.1vw}.month .dh .dn{font-size:.7vw}
+.month .ev{min-height:0;padding:.08vw .3vw .08vw .5vw;margin-bottom:.12vw;border-radius:.25vw}.month .ev .sb,.month .ev .av,.month .ev .ck{display:none}.month .ev .tl{font-size:.58vw}
+.month .other{background:#fafafa}.month .other .dn{color:#c0c4cc}
+.dayv .day{padding:.6vw 1vw}.dayv .evs{max-width:60vw}.dayv .ev{min-height:2.8vw}.dayv .ev .tl{font-size:.9vw}.dayv .ev .sb{font-size:.72vw}
+.empty{color:#9ca3af;font-size:.75vw;margin:auto}
+.fab{position:fixed;right:1.6vw;bottom:1.6vw;width:3.2vw;height:3.2vw;border-radius:50%;background:#1d4ed8;color:#fff;border:0;font-size:1.9vw;font-weight:300;line-height:1;cursor:pointer;z-index:10;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.drw{position:fixed;top:0;bottom:0;left:3.3vw;width:26vw;background:#fff;border-right:1px solid #e5e7eb;z-index:15;display:none;flex-direction:column;padding:1vw}
+.drw.on{display:flex}
+.drw h3{font-size:1.1vw;font-weight:600;display:flex;align-items:center;margin-bottom:.8vw}.drw h3 small{font-size:.65vw;color:#9ca3af;font-weight:400;margin-left:auto;margin-right:.8vw}
+.drw .x{border:0;background:#f3f4f6;border-radius:50%;width:1.8vw;height:1.8vw;font-size:1vw;cursor:pointer}
+.kids{flex:1;overflow:hidden}
+.kid{background:var(--t);border-radius:.6vw;padding:.6vw;margin-bottom:.7vw}
+.kh{display:flex;align-items:center;font-size:.95vw;font-weight:600;margin-bottom:.4vw}
+.kh i{width:1.5vw;height:1.5vw;border-radius:50%;color:#fff;font-style:normal;font-size:.75vw;display:flex;align-items:center;justify-content:center;margin-right:.5vw}
+.kh .st{margin-left:auto;font-size:.8vw;background:#fff;border-radius:1vw;padding:.15vw .6vw}
+.cb{display:flex;align-items:center;width:100%;border:0;background:#fff;border-radius:.4vw;padding:.45vw .5vw;margin-top:.3vw;font-size:.82vw;cursor:pointer;text-align:left;min-height:2.2vw}
+.cb .bx{flex:none;width:1.1vw;height:1.1vw;border-radius:50%;border:1px solid #9ca3af;margin-right:.5vw;font-size:.65vw;display:flex;align-items:center;justify-content:center;color:#fff}
+.cb.done .bx{background:#22c55e;border-color:#22c55e}.cb.done .tt{color:#9ca3af;text-decoration:line-through}.cb.ro .bx{border-style:dashed}.cb.busy{opacity:.5}
+.cb .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cb .sv{font-size:.7vw;color:#6b7280}
+#ov .box{border-radius:1vw}
+.ov{background:rgba(17,24,39,.94)}.ov .lbl{background:none;color:#fff;font-size:2vw;font-weight:600;padding:0}
+.ov .box{border:1px solid rgba(255,255,255,.2)!important;border-radius:1vw;height:74vh}
+.ov .hint{background:rgba(255,255,255,.14);color:#fff;font-weight:500}
+.ov .lbl::before{background-color:#1d4ed8}
+.amb{background:#fff;border-radius:1.2vw}
+.btn.pri{background:#1d4ed8;color:#fff}.chip.on{background:var(--c,#1d4ed8);border-color:var(--c,#1d4ed8)}
+.ti:focus{border-color:#1d4ed8}.seg .on{color:#1d4ed8;background:#fff}
+.month .dh .dn b{margin-left:0}.seg button{border:0;font-size:1.2vw;padding:.6vw 1.6vw}
+#night .nt{color:#3b4250}#night .nd{color:#262b33}
 </style></head><body>
-<div class="top"><div class="time" id="time">--:--</div><div class="date" id="date"></div>
-<div class="hchips" id="hchips"></div><button class="addb" id="addb">+ Add</button><!-- reserved: Home Assistant status chips -->
-<div class="wx" id="wx"><span class="ic">·</span><span>Loading weather…</span></div></div>
-<div class="main">
- <div class="cal">
-  <div class="bar"><button class="nav" id="prev">‹</button><h2 id="range"></h2><button class="nav" id="next">›</button><button class="nav tb" id="todayb">Today</button>
-   <div class="pfs" id="pfs"></div>
-   <div class="tg" id="tg"><button data-v="day">Day</button><button data-v="week" class="on">Week</button><button data-v="month">Month</button></div></div>
-  <div id="wkh"></div>
-  <div class="grid week" id="grid"></div>
- </div>
- <div class="side">
-  <div class="ch" id="chp"><h3>Chores · Today <small id="chmsg">tap to check off</small></h3><div class="kids" id="kids"><div class="empty">Loading…</div></div></div>
-  <div class="up cam" id="camp"><div class="cf" id="camf"><img id="camimg" alt=""><div class="cph" id="camph"><span class="ci">📷</span><span id="camtx">Loading front door…</span></div><span class="cl">Front door</span></div></div><div class="hide"><div id="agenda"></div></div>
- </div>
+<nav class="rail" id="rail"><div class="logo">📅</div>
+<button data-r="week" class="on" title="Calendar">🗓️</button><button data-r="chores" title="Chores">✅</button><button data-r="stars" title="Stars">⭐</button><button data-r="day" title="Today">📋</button><button data-r="month" title="Month">📆</button><button data-r="cam" title="Front door">📷</button><button data-r="night" title="Night mode">🌙</button><div class="sp"></div><button data-r="add" title="Add">➕</button></nav>
+<div class="app">
+ <div class="tb"><span class="date" id="date"></span><span class="time" id="time">--:--</span><button class="ib" id="refb" title="Refresh">↻</button><div class="wx" id="wx"><span class="ic">·</span></div>
+  <div class="hchips" id="hchips"></div><span id="foot"></span>
+  <label class="pill"><select id="vsel"><option value="day">Day</option><option value="week" selected>Week</option><option value="month">Month</option></select><span class="cv">▾</span></label>
+  <div class="pill"><button class="ar" id="prev">‹</button><button id="range" title="Today"></button><button class="ar" id="next">›</button></div>
+  <div class="pill flt" id="fltb">Filter&nbsp;<span style="font-size:.6vw;color:#6b7280">▾</span><div class="fpop" id="pfs"></div></div>
+  <span class="wifi" id="wifi" title="Connection">📶</span></div>
+ <div class="mem" id="mem"></div>
+ <div class="cal"><div id="wkh"></div><div class="grid week" id="grid"></div></div>
 </div>
-<div class="foot" id="foot"></div>
+<button class="fab" id="addb" title="Add">+</button>
+<div class="drw" id="chp"><h3><span id="chh">Chores · Today</span><small id="chmsg">tap to check off</small><button class="x" id="chx">×</button></h3><div class="kids" id="kids"><div class="empty">Loading…</div></div></div>
+<div class="hide"><div id="agenda"></div><button id="todayb"></button></div>
 <div id="night"><div class="nt" id="ntime"></div><div class="nd" id="ndate"></div><div class="nh">Tap to wake</div></div>
 <div class="ov" id="ov"><div class="lbl" id="ovlbl">Someone's at the front door</div><div class="box" id="ovbox"><span class="live">● LIVE</span></div><div class="hint">Tap anywhere to close</div></div>
 <div id="am"><div class="amb">
@@ -346,8 +195,8 @@ const dow=s=>D(s).getUTCDay();
 const fmt=(s,o)=>D(s).toLocaleDateString('en-US',{timeZone:'UTC',...o});
 function t12(hm,ampm){let [h,m]=hm.split(':').map(Number);const ap=h<12?'AM':'PM';h=h%12||12;return (m?`${h}:${String(m).padStart(2,'0')}`:`${h}:00`)+(ampm?' '+ap:ap[0].toLowerCase())}
 const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const PAL={Jack:'#4c8dff',Liv:'#ff5fa2',Mom:'#9b7bff',Dad:'#2bb673',Bruce:'#ff9f1c',Family:'#6c7a93'};
-const TINT={Jack:'#e6efff',Liv:'#ffe8f2',Mom:'#efe9ff',Dad:'#e2f6ec',Bruce:'#fff1dc',Family:'#eef1f6'};
+const PAL={Jack:'#5b9be6',Liv:'#a978e3',Mom:'#5fb884',Dad:'#e2786c',Bruce:'#eb9a45',Family:'#7d8ca3'};
+const TINT={Jack:'#dde9f9',Liv:'#ece0fa',Mom:'#d9efe1',Dad:'#f8dbd7',Bruce:'#fce8d2',Family:'#e6eaf0'};
 const pc=p=>PAL[p.name]||p.color;
 const ini=n=>(n||'?').charAt(0).toUpperCase();
 function color(names){const p=cfg.people.find(p=>p.name===names[0]);return p?pc(p):PAL.Family}
@@ -356,7 +205,7 @@ let curDay=today();
 function tick(){const d=new Date();const nd=today();
  if(nd!==curDay){if(anchor===curDay)anchor=nd;curDay=nd;cache={};load(true)} // roll over at midnight (America/Chicago)
  $('time').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});
- $('date').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric',year:'numeric'});
+ $('date').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,month:'short',day:'numeric',year:'numeric'}).replace(',','');
  const t=today(); if(t!==tick.last){if(tick.last&&anchor===tick.last)anchor=t;tick.last=t;render()}
  if(d.getSeconds()===0)renderAgenda();}
 
@@ -367,48 +216,71 @@ function rangeFor(){if(view==='day')return [anchor,anchor];
 async function getJSON(u){const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));return r.json()}
 async function load(force){const [s,e]=rangeFor(),t=today();const want=[[s,e],[t,t]];
  try{for(const [a,b] of want){const k=a+'|'+b;if(force||!cache[k])cache[k]=(await getJSON(`api/events?start=${a}&end=${b}`)).events}
-  lastOk=new Date();$('foot').className='foot';$('foot').textContent='Updated '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'})}
- catch(err){$('foot').className='foot err';$('foot').textContent='Calendar unavailable ('+err.message+')'+(lastOk?' · showing data from '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'}):'')}
+  lastOk=new Date();$('foot').className='foot';$('wifi').className='wifi';$('foot').textContent='Updated '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'})}
+ catch(err){$('foot').className='foot err';$('wifi').className='wifi err';$('foot').textContent='Calendar unavailable ('+err.message+')'+(lastOk?' · showing data from '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'}):'')}
  render()}
 
 function eventsOn(list,day){return list.filter(e=>!e.people.length||e.people.some(p=>!hidden.has(p))).filter(e=>e.allDay?(e.start<=day&&e.end>=day):e.start.slice(0,10)===day)}
-function evHTML(e,nx){const c=color(e.people);const who=e.people.join(', ');const nc=nx?' nx':'',nb=nx?`<em class="nxb">${nx}</em>`:'';
- return e.allDay?`<div class="ev ad" style="--c:${c};--t:${TINT[e.people[0]]||TINT.Family}">${esc(e.title)}<span class="who">${esc(who)}</span></div>`
- :`<div class="ev${nc}" style="--c:${c};--t:${TINT[e.people[0]]||TINT.Family}">${nb}<b>${t12(e.start.slice(11,16),view==='day')}</b> ${esc(e.title)}<span class="who">${esc(who)}</span></div>`}
-
+let chData=null,chBusy=false;let doneSet={};try{doneSet=JSON.parse(localStorage.getItem('evdone')||'{}')}catch(x){}
+const evKey=e=>e.title+'|'+e.start;
+function avHTML(ps){const ns=ps.length?ps:['Family'];return '<span class="av">'+ns.slice(0,3).map(n=>{const p=cfg.people.find(q=>q.name===n);return `<i style="background:${p?pc(p):PAL.Family}">${ini(n)}</i>`}).join('')+'</span>'}
+function evHTML(e,nx){const c=color(e.people),tn=TINT[e.people[0]]||TINT.Family,k=evKey(e),dn=doneSet[k]?' dn':'';
+ const sub=e.allDay?'All day':(t12(e.start.slice(11,16),false).replace(/([ap])$/,' $1m').toUpperCase().replace(' AM',' AM')+' – '+t12(e.end.slice(11,16),false).replace(/([ap])$/,' $1m').toUpperCase());
+ return `<div class="ev${nx?' nx':''}${dn}" style="--c:${c};--t:${tn}" data-k="${esc(k)}"><span class="tx"><span class="tl">${nx?`<em class="nxb">${nx}</em>`:''}${esc(e.title)}</span><span class="sb">${sub}</span></span>${avHTML(e.people)}<button class="ck">${dn?'✓':''}</button></div>`}
 function dayBody(d,evs,t){const now=nowHM();
- if(!evs.length){if(d===t&&view!=='month')return '<div class="free"><span class="fi">☀️</span><b>Nothing scheduled</b><span>Enjoy a free day</span></div>';
-  return view==='week'?'<div class="free sm">Free day</div>':view==='day'?'<div class="empty">Nothing scheduled</div>':''}
+ if(!evs.length)return view==='month'?'':'<div class="noev">No event</div>';
  let nxi=-1;if(d===t&&view!=='month')for(let i=0;i<evs.length;i++){const e=evs[i];if(!e.allDay&&(e.end.slice(0,10)>t||e.end.slice(11,16)>now)){nxi=i;break}}
  if(nxi<0)return evs.map(e=>evHTML(e)).join('');
- const nx=evs[nxi],past=evs.filter(e=>!e.allDay&&e!==nx&&e.end.slice(0,10)===t&&e.end.slice(11,16)<=now),rest=evs.filter(e=>e!==nx&&past.indexOf(e)<0);
- return evHTML(nx,nx.start.slice(11,16)<=now?'Happening now':'Up next')+rest.map(e=>evHTML(e)).join('')+past.map(e=>evHTML(e).replace('class="ev','class="ev pastev')).join('')}
+ const past=evs.filter(e=>!e.allDay&&e.end.slice(0,10)===t&&e.end.slice(11,16)<=now);
+ return evs.map(e=>past.indexOf(e)>=0?evHTML(e).replace('class="ev','class="ev pastev'):evHTML(e,e===evs[nxi]?(e.start.slice(11,16)<=now?'Now':'Next'):'')).join('')}
 function render(){const [s,e]=rangeFor(),list=cache[s+'|'+e];const t=today(),g=$('grid');
- g.className='grid '+(view==='day'?'dayv':view);
- $('range').textContent=view==='day'?fmt(s,{weekday:'short',month:'short',day:'numeric'}):view==='week'?(fmt(s,{month:'short',day:'numeric'})+' – '+(s.slice(5,7)===e.slice(5,7)?fmt(e,{day:'numeric'}):fmt(e,{month:'short',day:'numeric'}))):fmt(anchor,{month:'long',year:'numeric'});
+ g.className='grid '+(view==='day'?'dayv':view);$('vsel').value=view;
+ $('range').textContent=view==='day'?fmt(s,{month:'short',day:'2-digit'}):view==='week'?(fmt(s,{month:'short',day:'2-digit'})+'-'+fmt(e,{day:'2-digit'})):fmt(anchor,{month:'short',year:'numeric'});
  $('wkh').className=view==='month'?'wkh':'';$('wkh').innerHTML=view==='month'?['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div>${d}</div>`).join(''):'';
+ [...$('rail').querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.r===view&&!$('chp').classList.contains('on')||($('chp').classList.contains('on')&&b.dataset.r===chMode)));
  if(!list){g.innerHTML='<div class="empty">Loading…</div>';return}
  const n=view==='day'?1:view==='week'?7:42;let h='';
  for(let i=0;i<n;i++){const d=add(s,i),evs=eventsOn(list,d);const other=view==='month'&&d.slice(5,7)!==anchor.slice(5,7);
-  h+=`<div class="day${d===t?' today':''}${view==='week'&&evs.length>3?' busy':''}${other?' other':''}"><div class="dh"><span>${fmt(d,{weekday:view==='day'?'long':'short'})}</span>${view!=='month'?dayWx(d):''}<strong>${fmt(d,{day:'numeric'})}</strong></div><div class="evs">${dayBody(d,evs,t)}</div></div>`}
- if(view==='week'){const cnt={};let tot=0;for(let i=0;i<7;i++)for(const ev of eventsOn(list,add(s,i))){tot++;for(const p of (ev.people.length?ev.people:['Family']))cnt[p]=(cnt[p]||0)+1}
-  h+=`<div class="day sum"><div class="dh"><span>Next 7 days</span><strong>${tot}</strong></div><div class="evs">${cfg.people.filter(p=>cnt[p.name]).map(p=>`<div class="row"><i style="background:${pc(p)}"></i>${esc(p.name)}<b>${cnt[p.name]}</b></div>`).join('')||'<div class="empty">Nothing scheduled</div>'}</div></div>`}
+  const lbl=view==='month'?`<span class="dn"><b>${fmt(d,{day:'numeric'})}</b></span>`:`<span class="dn">${fmt(d,{weekday:view==='day'?'long':'short'})}<b>${fmt(d,{day:'2-digit'})}</b></span>`;
+  const ac=view==='month'?'':`<button class="ac" data-d="${d}">${evs.length?evs.length+(evs.length===1?' event':' events'):'Add Event'}<em>+</em></button>`;
+  h+=`<div class="day${d===t?' today':''}${other?' other':''}"><div class="dh">${lbl}${view==='day'?dayWx(d):''}${ac}</div><div class="evs">${dayBody(d,evs,t)}</div></div>`}
+ if(view==='week'){const ns=add(s,7);h+=`<div class="day nxw" id="nxw"><div class="dh"><span class="dn">Next Week</span></div><div class="evs"><div class="noev">${fmt(ns,{month:'short',day:'2-digit'})}-${fmt(add(ns,6),{month:'short',day:'2-digit'})}</div></div></div>`}
  g.innerHTML=h;
  g.querySelectorAll('.day').forEach(d=>{const v=d.querySelector('.evs');if(v&&v.scrollHeight>v.clientHeight+2)d.classList.add('more')});
- renderAgenda()}
-
+ renderMembers();renderAgenda()}
+$('grid').onclick=e=>{const ck=e.target.closest('.ck');if(ck){const ev=ck.closest('.ev'),k=ev.dataset.k;if(doneSet[k])delete doneSet[k];else doneSet[k]=1;try{localStorage.setItem('evdone',JSON.stringify(doneSet))}catch(x){}render();return}
+ const ac=e.target.closest('.ac');if(ac){addOpen();addDay=ac.dataset.d;addRender();return}
+ if(e.target.closest('#nxw')){anchor=add(anchor,7);load();return}
+ const dy=e.target.closest('.day');if(dy&&view==='month'){const b=dy.querySelector('.ac');}};
 function renderAgenda(){const t=today(),list=cache[t+'|'+t];if(!list)return;const now=nowHM();
  const evs=eventsOn(list,t);const ad=evs.filter(e=>e.allDay),timed=evs.filter(e=>!e.allDay).filter(e=>e.end.slice(0,10)>t||e.end.slice(11,16)>now);
  $('agenda').className='agl';
  $('agenda').innerHTML=ad.map(e=>`<div class="ag" style="--c:${color(e.people)}"><b>All day</b><span>${esc(e.title)}</span></div>`).join('')+
   timed.map(e=>`<div class="ag" style="--c:${color(e.people)}"><b>${e.start.slice(11,16)<=now?'Now':t12(e.start.slice(11,16),true)}</b><span>${esc(e.title)}</span></div>`).join('')||'<div class="empty">Nothing else today 🎉</div>'}
 
-function renderPeople(){$('pfs').innerHTML=cfg.people.map(p=>`<button class="pf${hidden.has(p.name)?' off':''}" data-n="${esc(p.name)}"><i style="background:${pc(p)}">${esc(p.initial)}</i>${esc(p.name)}</button>`).join('')}
-$('pfs').onclick=e=>{const b=e.target.closest('.pf');if(!b)return;const n=b.dataset.n;hidden.has(n)?hidden.delete(n):hidden.add(n);renderPeople();render()};
-$('tg').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.v;[...$('tg').children].forEach(x=>x.classList.toggle('on',x===b));anchor=today();load()};
+function renderPeople(){$('pfs').innerHTML=cfg.people.map(p=>`<button class="pf${hidden.has(p.name)?' off':''}" data-n="${esc(p.name)}"><i style="background:${pc(p)}">${esc(p.initial||ini(p.name))}</i>${esc(p.name)}</button>`).join('');$('fltb').classList.toggle('on',hidden.size>0);renderMembers()}
+function renderMembers(){const ks=(chData&&chData.kids)||[];
+ $('mem').innerHTML=cfg.people.map(p=>{const k=ks.find(x=>x.name===p.name),dn=k?k.chores.filter(c=>c.done).length:0,tot=k?k.chores.length:0;
+  return `<button class="mc${hidden.has(p.name)?' off':''}" style="--c:${pc(p)};--t:${TINT[p.name]||TINT.Family}" data-n="${esc(p.name)}"><i>${esc(p.initial||ini(p.name))}</i><span>${esc(p.name)}</span><b>${dn}/${tot}</b></button>`}).join('')}
+function toggleP(n){hidden.has(n)?hidden.delete(n):hidden.add(n);renderPeople();render()}
+$('pfs').onclick=e=>{e.stopPropagation();const b=e.target.closest('.pf');if(b)toggleP(b.dataset.n)};
+$('mem').onclick=e=>{const b=e.target.closest('.mc');if(b)toggleP(b.dataset.n)};
+$('fltb').onclick=()=>$('pfs').classList.toggle('on');
+function setView(v){view=v;anchor=today();load()}
+$('vsel').onchange=()=>setView($('vsel').value);
 $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
-$('todayb').onclick=()=>{anchor=today();load()};
+$('todayb').onclick=$('range').onclick=()=>{anchor=today();load()};
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
+$('refb').onclick=()=>{cache={};load(true);weather();loadChores();loadHome()};
+let chMode='chores';
+function drawer(m){chMode=m;$('chh').textContent=m==='stars'?'Stars · Today':'Chores · Today';$('chp').classList.add('on');render()}
+$('chx').onclick=()=>{$('chp').classList.remove('on');render()};
+$('rail').onclick=e=>{const b=e.target.closest('button');if(!b)return;const r=b.dataset.r;
+ if(r==='chores'||r==='stars'){if($('chp').classList.contains('on')&&chMode===r){$('chp').classList.remove('on');render()}else drawer(r);return}
+ if(r==='cam'){openCam(false);return}
+ if(r==='night'){forceNight=true;wakeUntil=0;nightTick();return}
+ if(r==='add'){addOpen();return}
+ $('chp').classList.remove('on');setView(r)};
 
 // ---------------------------------------------------------------- + Add (event / task)
 let addKind='event',addDay=null,addWho=[],addAllDay=true,addStars=0,addBusy=false;
@@ -457,30 +329,15 @@ $('aSave').onclick=async()=>{if(addBusy)return;const m=$('aMsg');m.className='ms
 
 let ovTimer=null,seenRing=undefined;
 const camHost=u=>(u||'').replace('{host}',location.hostname);
-function openCam(ring){const c=cfg.camera||{};if(!c.url)return;$('ov').classList.add('on');feedStop(); // stop sidebar MJPEG before the overlay stream opens
+function openCam(ring){const c=cfg.camera||{};if(!c.url)return;$('ov').classList.add('on');$('pfs').classList.remove('on');
  $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
  if(!$('ovbox').querySelector('iframe')){const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay; fullscreen';
   f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.style.pointerEvents='none';$('ovbox').prepend(f)}
  wake(120000);$('ov').classList.add('on');clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
-function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f){f.src='about:blank';f.remove()}feedStart()}
+function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f){f.src='about:blank';f.remove()}}
 function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring (no stream is loaded until a ring)
 $('ov').onclick=closeCam;
-// sidebar doorbell feed: go2rtc MJPEG in a plain <img> (no iframe). Only one stream at a time:
-// stopped (src='') at night, when document.hidden and before the ring overlay opens its own stream.
-const MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src=doorbell_mjpeg',RETRY_MS=5000,RECYCLE_MS=600000; // doorbell_mjpeg = go2rtc ffmpeg H264->MJPEG 480w@8fps
-let feedOn=false,feedRetry=null;
-function feedPaused(){return document.hidden||$('night').classList.contains('on')||$('ov').classList.contains('on')}
-function feedStop(){if(!feedOn&&!feedRetry&&!$('camimg').getAttribute('src'))return;clearTimeout(feedRetry);feedRetry=null;feedOn=false;const im=$('camimg');im.onload=im.onerror=null;im.removeAttribute('src');im.src='';$('camp').className='up cam'}
-function feedStart(){if(feedOn||feedRetry||feedPaused())return;feedOn=true;const im=$('camimg');
- $('camtx').textContent='Connecting to front door…';
- im.onload=function(){$('camp').className='up cam ok'}; // fires on first MJPEG frame
- im.onerror=function(){feedStop();$('camtx').textContent='Front door camera offline · reconnecting…';
-  feedRetry=setTimeout(function(){feedRetry=null;feedStart()},RETRY_MS)};
- im.src=camHost(MJPEG_URL)+'&t='+Date.now()}
-// reopen the MJPEG connection every 10 min (no placeholder flicker) to cap Chromium 74 decode-cache growth
-setInterval(function(){if(feedOn&&!feedPaused())$('camimg').src=camHost(MJPEG_URL)+'&t='+Date.now()},RECYCLE_MS);
-document.addEventListener('visibilitychange',function(){if(document.hidden)feedStop();else feedStart()});
-$('camp').onclick=function(){openCam(false)};
+// no always-on feed: the doorbell is the ring overlay (and the rail camera button); its iframe is created on open and cleared on close
 async function pollRing(){try{const d=await getJSON('api/doorbell');
   if(seenRing===undefined)seenRing=d.last_ring;
   else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;openCam(true)}}catch(e){}}
@@ -490,12 +347,12 @@ let wxDays={};
 function dayWx(d){const w=wxDays[d];if(!w)return '';const hl=[w.hi,w.lo].filter(x=>x!==null&&x!==undefined).map(x=>x+'°').join(' / ');return `<span class="dw">${w.icon||''} ${hl}</span>`}
 async function weather(){try{const d=await getJSON('api/weather');wxDays={};(d.days||[]).forEach(x=>wxDays[x.date]=x);
   const c=d.current||{},t=wxDays[today()]||{};const hl=(t.hi!=null?'H '+t.hi+'° ':'')+(t.lo!=null?'L '+t.lo+'°':'');
-  $('wx').innerHTML=`<span class="ic">${c.icon||'🌡️'}</span><b>${c.temp!=null?c.temp+'°F':'--'}</b> <span>${esc(c.text||'')}</span><span class="hl">${hl}</span>`;render()}
+  $('wx').innerHTML=`<span class="ic">${c.icon||'🌡️'}</span><span>${c.temp!=null?c.temp+'°F':'--'}</span>`;$('wx').title=(c.text||'')+' '+hl;render()}
  catch(e){$('wx').innerHTML='<span class="ic">🌡️</span><span>Weather unavailable</span>'}}
 
 async function loadHome(){try{const d=await getJSON('api/home');$('hchips').innerHTML=(d.chips||[]).map(c=>`<span class="hc ${c.level}" title="${esc(c.id)}">${c.icon} ${esc(c.name)} · ${esc(c.label)}</span>`).join('')}catch(e){}}
-let chData=null,chBusy=false;
-async function loadChores(){try{chData=await getJSON('api/chores');renderChores()}catch(e){if(!chData)$('kids').innerHTML='<div class="empty">Chores unavailable</div>'}}
+
+async function loadChores(){try{chData=await getJSON('api/chores');renderChores();renderMembers()}catch(e){if(!chData)$('kids').innerHTML='<div class="empty">Chores unavailable</div>'}}
 function renderChores(){if(!chData)return;const ks=chData.kids||[];
  $('kids').innerHTML=ks.map(k=>`<div class="kid" style="--c:${pc(k)};--t:${TINT[k.name]||TINT.Family}"><div class="kh"><i style="background:${pc(k)}">${ini(k.name)}</i>${esc(k.name)}<span class="st">⭐ ${k.stars}</span></div>`+
   (k.chores.length?k.chores.map(c=>`<button class="cb${c.done?' done':''}${c.tappable?'':' ro'}" data-id="${c.id}" data-ro="${c.tappable?0:1}"><span class="bx">${c.done?'✓':''}</span><span class="tt">${esc(c.title)}</span>${c.stars?`<span class="sv">+${c.stars}⭐</span>`:''}</button>`).join(''):'<div class="empty">No chores today</div>')+'</div>').join('')||'<div class="empty">No chores today</div>'}
@@ -503,26 +360,26 @@ $('kids').onclick=async e=>{const b=e.target.closest('.cb');if(!b||chBusy)return
  if(b.dataset.ro==='1'){$('chmsg').textContent='repeating chore: check off in the eCalendar app';setTimeout(()=>$('chmsg').textContent='tap to check off',5000);return}
  chBusy=true;b.classList.add('busy');
  try{const r=await fetch('api/chores/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:b.dataset.id})});
-  if(!r.ok)throw new Error(r.status);const d=await r.json();chData={day:d.day,kids:d.kids};renderChores()}
+  if(!r.ok)throw new Error(r.status);const d=await r.json();chData={day:d.day,kids:d.kids};renderChores();renderMembers()}
  catch(err){b.classList.remove('busy');$('chmsg').textContent='could not save ('+err.message+')'}
  finally{chBusy=false}};
 
 // night dim: near-black overlay between cfg.night.start and end (America/Chicago); tap or doorbell wakes for 2 min
 let wakeUntil=0;
 const toMin=s=>{const a=String(s||'0:0').split(':');return (+a[0])*60+(+a[1]||0)};
-function isNight(){const n=cfg.night||{start:'21:00',end:'06:00'},p=partsInTZ(new Date()),m=(+p.hour)*60+(+p.minute),a=toMin(n.start),b=toMin(n.end);
+let forceNight=false;
+function isNight(){if(forceNight)return true;const n=cfg.night||{start:'21:00',end:'06:00'},p=partsInTZ(new Date()),m=(+p.hour)*60+(+p.minute),a=toMin(n.start),b=toMin(n.end);
  if(location.hash==='#night')return true;return a<=b?(m>=a&&m<b):(m>=a||m<b)}
 function wake(ms){wakeUntil=Date.now()+(ms||120000);nightTick()}
 function nightTick(){const on=isNight()&&Date.now()>wakeUntil&&!$('ov').classList.contains('on');$('night').classList.toggle('on',on);
- if(on)feedStop();else feedStart();
  if(on){const d=new Date();$('ntime').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});$('ndate').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric'})}}
-$('night').addEventListener('click',e=>{e.stopPropagation();wake(120000)});
+$('night').addEventListener('click',e=>{e.stopPropagation();forceNight=false;wake(120000)});
 document.addEventListener('touchstart',()=>{if(!$('night').classList.contains('on')&&isNight())wake(120000)},{passive:true});
 setInterval(nightTick,1000);
 
 (async()=>{tick();setInterval(tick,1000);
  try{cfg=await getJSON('api/config')}catch(e){$('foot').className='foot err';$('foot').textContent='Config unavailable'}
- renderPeople();setupCamera();feedStart();nightTick();weather();loadChores();loadHome();await load();
+ renderPeople();setupCamera();nightTick();weather();loadChores();loadHome();await load();
  setInterval(()=>{cache={};load(true)},REFRESH);setInterval(weather,15*60*1000);setInterval(loadChores,60000);setInterval(loadHome,15000);
  setInterval(()=>location.reload(),6*3600*1000);})();
 </script>
