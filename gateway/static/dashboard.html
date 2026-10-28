@@ -290,4 +290,32 @@ setInterval(nightTick,1000);
  renderPeople();setupCamera();nightTick();weather();loadChores();loadHome();await load();
  setInterval(()=>{cache={};load(true)},REFRESH);setInterval(weather,15*60*1000);setInterval(loadChores,60000);setInterval(loadHome,15000);
  setInterval(()=>location.reload(),6*3600*1000);})();
-</script></body></html>
+</script>
+<!-- ===== KIOSK EXIT HOOK (Android app) - keep when redesigning: hold the clock (#time, or #ntime in night mode) 3s -> window.KioskApp.exit() ===== -->
+<script>
+(function(){
+  var HOLD=3000, C=2*Math.PI*26, t=null, raf=null, start=0, ring=null, sx=0, sy=0;
+  function stop(){ if(t){clearTimeout(t);t=null;} if(raf){cancelAnimationFrame(raf);raf=null;} if(ring){ring.parentNode.removeChild(ring);ring=null;} }
+  function tick(){ if(!ring) return; var p=Math.min(1,(Date.now()-start)/HOLD); ring.querySelector('circle+circle').setAttribute('stroke-dashoffset',String(C*(1-p))); raf=requestAnimationFrame(tick); }
+  function begin(el,x,y){
+    if(!(window.KioskApp && window.KioskApp.exit)) return; // normal browser: do nothing
+    stop(); sx=x; sy=y; var r=el.getBoundingClientRect();
+    ring=document.createElement('div');
+    ring.style.cssText='position:fixed;width:60px;height:60px;pointer-events:none;z-index:9999;opacity:.75;left:'+(r.left+r.width/2-30)+'px;top:'+(r.top+r.height/2-30)+'px';
+    ring.innerHTML='<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="26" fill="none" stroke="rgba(128,128,128,.25)" stroke-width="4"/><circle cx="30" cy="30" r="26" fill="none" stroke="rgba(128,128,128,.85)" stroke-width="4" stroke-linecap="round" transform="rotate(-90 30 30)" stroke-dasharray="'+C+'" stroke-dashoffset="'+C+'"/></svg>';
+    document.body.appendChild(ring); start=Date.now(); tick();
+    t=setTimeout(function(){ stop(); try{window.KioskApp.exit();}catch(x){} }, HOLD);
+  }
+  ['time','ntime'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    el.style.webkitUserSelect='none'; el.style.userSelect='none'; el.style.webkitTouchCallout='none';
+    el.addEventListener('touchstart',function(e){var q=e.touches[0];begin(el,q.clientX,q.clientY);},{passive:true});
+    el.addEventListener('mousedown',function(e){begin(el,e.clientX,e.clientY);});
+    el.addEventListener('touchmove',function(e){var q=e.touches[0]; if(Math.abs(q.clientX-sx)>20||Math.abs(q.clientY-sy)>20) stop();},{passive:true});
+    ['touchend','touchcancel','mouseup','mouseleave'].forEach(function(n){ el.addEventListener(n,stop,{passive:true}); });
+    el.addEventListener('contextmenu',function(e){e.preventDefault();});
+  });
+})();
+</script>
+<!-- ===== END KIOSK EXIT HOOK ===== -->
+</body></html>
