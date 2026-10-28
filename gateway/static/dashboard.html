@@ -196,7 +196,9 @@ button{font-family:inherit;color:inherit}
 const CAM_MODE='img-recycle';
 const CAM_SRC='doorbell_mjpeg';            // go2rtc source (480-640w transcode)
 const CAM_FRAME_MS=220;                    // canvas-frames: delay between frames (~4-5 fps)
-const CAM_RECYCLE_MS=30000;                // img-recycle: tear down + recreate the <img> this often
+const CAM_RECYCLE_MS=15000;                // img-recycle: tear down + recreate the <img> this often
+const CAM_GAP_MS=1500;                     // img-recycle: no-stream gap between teardown and reconnect
+const CAM_BLANK='data:image/gif;base64,R0lGODlhAQABAAAAACw=';
 const CAM_RETRY_MS=5000;                   // reconnect delay after an error
 const CAM_FRAME_URL='http://{host}:1984/api/frame.jpeg?src='+CAM_SRC;
 const CAM_MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src='+CAM_SRC;
@@ -362,8 +364,7 @@ const CamFeed={el:null,on:false,t:null,rt:null,img:null,cv:null,busy:false,cb:nu
  start(el,cb){if(this.on&&this.el===el)return;this.stop();this.on=true;this.el=el;this.cb=cb||function(){};
   if(CAM_MODE==='img-recycle')this._imgOpen();else this._cvOpen()},
  stop(){clearTimeout(this.t);clearTimeout(this.rt);this.t=this.rt=null;this.busy=false;
-  const im=this.img;if(im){im.onload=im.onerror=null;im.src='';if(im.parentNode)im.parentNode.removeChild(im)}
-  if(CAM_MODE==='img-recycle')this.img=null;
+  if(CAM_MODE==='img-recycle')this._imgKill();else{const im=this.img;if(im){im.onload=im.onerror=null;im.src=''}}
   if(this.cv&&this.cv.parentNode)this.cv.parentNode.removeChild(this.cv);
   if(this.on&&this.cb)this.cb('off');this.on=false;this.el=null},
  _err(){const self=this,el=this.el,cb=this.cb;this.stop();cb('err');
@@ -372,7 +373,11 @@ const CamFeed={el:null,on:false,t:null,rt:null,img:null,cv:null,busy:false,cb:nu
  _imgOpen(){const self=this,im=document.createElement('img');im.alt='';this.img=im;
   im.onload=function(){self.cb('ok')};im.onerror=function(){self._err()};
   im.src=camHost(CAM_MJPEG_URL)+'&t='+Date.now();this.el.appendChild(im);
-  this.t=setTimeout(function(){if(!self.on)return;im.onload=im.onerror=null;im.src='';if(im.parentNode)im.parentNode.removeChild(im);self.img=null;self._imgOpen()},CAM_RECYCLE_MS)},
+  this.t=setTimeout(function(){if(!self.on)return;self._imgKill(); // full teardown BEFORE the new one
+   self.t=setTimeout(function(){self.t=null;if(self.on)self._imgOpen()},CAM_GAP_MS)},CAM_RECYCLE_MS)},
+ // close the MJPEG connection + drop decoded frames: blank data URI, detach, null
+ _imgKill(){const im=this.img;this.img=null;if(!im)return;im.onload=im.onerror=null;im.src=CAM_BLANK;
+  if(im.parentNode)im.parentNode.removeChild(im);if(im.removeAttribute)im.removeAttribute('src')},
  // (b) ONE reused <canvas> + ONE reused Image; next request only after the previous finished
  _cvOpen(){if(!this.cv)this.cv=document.createElement('canvas');if(!this.img)this.img=new Image();this.el.appendChild(this.cv);this._frame()},
  _frame(){const self=this,im=this.img;if(!this.on||this.busy)return;this.busy=true;
