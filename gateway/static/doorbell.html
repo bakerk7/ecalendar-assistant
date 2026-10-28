@@ -15,6 +15,6 @@ function tick(){document.getElementById('t').textContent=left+'s';if(left--<=0)c
 // count 10 s from the first frame (camera cold start ~5 s); hard cap 25 s total
 var started=false;document.getElementById('t').textContent='Connecting…';
 function start(){if(!started){started=true;tick();}}
-img.onload=start;setTimeout(start,15000);setTimeout(close,25000);
+img.onload=function(){if(!started)try{fetch('/health?doorbell_first_frame=1')}catch(e){};start();};setTimeout(start,15000);setTimeout(close,25000);
 document.body.addEventListener('click',close);
 </script></body></html>

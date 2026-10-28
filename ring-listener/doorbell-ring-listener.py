@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Doorbell ring -> 10 s camera popup on the Dragon Touch eCalendar.
 
-Polls HA (read-only GET /api/states/<entity>) every 1.5 s. When the event entity's
+Polls HA (read-only GET /api/states/<entity>) every 1 s. When the event entity's
 state (ISO timestamp of last ring) changes, launches the kiosk app, which loads the
 doorbell popup page; the page calls KioskApp.exit() after 10 s, returning to
 com.fujia.calendar. Disable: touch ~/.doorbell-popup/DISABLED
@@ -37,7 +37,8 @@ def adb(*args, timeout=15):
 def popup():
     for attempt in range(3):
         try:
-            subprocess.run([ADB, "connect", DEV], capture_output=True, timeout=10)
+            if attempt:  # fast path: device is normally already connected
+                subprocess.run([ADB, "connect", DEV], capture_output=True, timeout=10)
             r = adb("shell", "am", "start", "-n", COMPONENT)
             if r.returncode == 0 and "Error" not in r.stdout + r.stderr:
                 logging.info("popup launched (attempt %d)", attempt + 1); return
@@ -68,7 +69,7 @@ def main():
                 last = s if s not in ("unavailable", "unknown") else last
         except Exception as e:
             logging.warning("HA poll error: %s", e); time.sleep(3)
-        time.sleep(1.5)
+        time.sleep(1.0)
 
 if __name__ == "__main__":
     main()
