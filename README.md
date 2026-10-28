@@ -326,3 +326,52 @@ This is a living template — PRs are welcome for new endpoints, additional devi
 support, or setup fixes. When adding a new `ecal.py` function, please include the
 real request/response JSON in its docstring (see any existing function for the
 pattern) so the next person doesn't have to re-capture it from scratch.
+
+## eCalendar gateway (self-hosted, one shared session)
+
+The eCalendar account allows **one login session**: every new sign-in issues a new
+token and the old one starts failing with `401 "Account logged in on another device"`.
+`gateway/` is a small FastAPI service that holds that one token so a wall-screen UI and
+sync scripts can share it instead of each logging in (and kicking each other out).
+
+- Starts from `ECALENDAR_TOKEN` (preferred). If `ECAL_EMAIL`/`ECAL_PASSWORD` are set it
+  re-logs in **only** after a 401, with a backoff (60s floor, doubling to 30 min on
+  failures) so it can't get into a login war with another device. Without a password it
+  returns `503` and logs that the session was taken; put a fresh token in `.env` and restart.
+- Reads are cached in memory for `GATEWAY_CACHE_TTL` seconds (default 60); any write
+  clears the cache.
+- Optional shared secret: set `GATEWAY_API_KEY` and send it as `X-API-Key`. LAN-only:
+  do not port-forward it — the token behind it can read and write the whole account.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/health` | liveness + session status (no upstream call, no auth) |
+| GET | `/whoami` | userId, userName, email, plan |
+| GET | `/categories` (`/profiles`) | `[{id, name, color, type, external}]` |
+| GET | `/events?start=YYYY-MM-DD&end=YYYY-MM-DD` | inclusive, local dates; auto-chunked into ≤50-day API calls |
+| POST | `/events` | raw `/app/event/add` body (see `ecalendar-api.md`); `deviceId` filled in |
+| PUT | `/events/{id}` | raw `/app/event/edit/selective` body |
+| DELETE | `/events/{id}?series=false` | optional JSON body for `origin*` fields |
+| POST | `/cache/clear` | |
+
+### Deploy on bakerserver (Docker)
+
+```bash
+git clone https://github.com/bakerk7/ecalendar-assistant && cd ecalendar-assistant
+cp .env.example .env        # fill in ECALENDAR_TOKEN, ECALENDAR_DEVICE, ECALENDAR_CATEGORIES, GATEWAY_API_KEY
+chmod 600 .env
+cp docker-compose.example.yml docker-compose.yml   # or merge the service into your stack
+docker compose up -d --build
+curl -s http://bakerserver:8080/health
+curl -s -H "X-API-Key: $KEY" "http://bakerserver:8080/events?start=2026-11-01&end=2026-12-31"
+```
+
+Run without Docker: `pip install -r gateway/requirements.txt && python -m gateway`.
+
+### Clients
+
+- **Wall-screen app:** poll `GET /categories` once and `GET /events?start=..&end=..`
+  every minute or so; colors come from `categories[].color`.
+- **Sync scripts:** stop using your own token/login — call the gateway over HTTP
+  (`requests.post("http://bakerserver:8080/events", json=body, headers={"X-API-Key": KEY})`),
+  so only the gateway ever holds the session.
