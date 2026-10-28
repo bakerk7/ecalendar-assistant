@@ -467,7 +467,7 @@ function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashb
 $('ov').onclick=closeCam;
 // sidebar doorbell feed: go2rtc MJPEG in a plain <img> (no iframe). Only one stream at a time:
 // stopped (src='') at night, when document.hidden and before the ring overlay opens its own stream.
-const MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src=doorbell',RETRY_MS=5000;
+const MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src=doorbell_mjpeg',RETRY_MS=5000,RECYCLE_MS=600000; // doorbell_mjpeg = go2rtc ffmpeg H264->MJPEG 480w@8fps
 let feedOn=false,feedRetry=null;
 function feedPaused(){return document.hidden||$('night').classList.contains('on')||$('ov').classList.contains('on')}
 function feedStop(){if(!feedOn&&!feedRetry&&!$('camimg').getAttribute('src'))return;clearTimeout(feedRetry);feedRetry=null;feedOn=false;const im=$('camimg');im.onload=im.onerror=null;im.removeAttribute('src');im.src='';$('camp').className='up cam'}
@@ -477,6 +477,8 @@ function feedStart(){if(feedOn||feedRetry||feedPaused())return;feedOn=true;const
  im.onerror=function(){feedStop();$('camtx').textContent='Front door camera offline · reconnecting…';
   feedRetry=setTimeout(function(){feedRetry=null;feedStart()},RETRY_MS)};
  im.src=camHost(MJPEG_URL)+'&t='+Date.now()}
+// reopen the MJPEG connection every 10 min (no placeholder flicker) to cap Chromium 74 decode-cache growth
+setInterval(function(){if(feedOn&&!feedPaused())$('camimg').src=camHost(MJPEG_URL)+'&t='+Date.now()},RECYCLE_MS);
 document.addEventListener('visibilitychange',function(){if(document.hidden)feedStop();else feedStart()});
 $('camp').onclick=function(){openCam(false)};
 async function pollRing(){try{const d=await getJSON('api/doorbell');
