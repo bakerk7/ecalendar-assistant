@@ -11,13 +11,16 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 .wx{margin-left:auto;font-size:1.55vw;display:flex;gap:.7vw;align-items:center}.wx .ic{font-size:2.7vw}
 .main{flex:1;display:flex;gap:1vw;min-height:0}
 .cal{flex:1;min-width:0;background:#fff;border-radius:1.25vw;padding:1.25vw;display:flex;flex-direction:column;gap:.85vw;box-shadow:0 2px 8px #0001}
-.bar{display:flex;align-items:center;gap:.6vw}.bar h2{font-size:1.7vw;margin-right:auto;white-space:nowrap}
+.bar{display:flex;align-items:center;gap:.6vw}.bar h2{font-size:1.5vw;margin-right:auto;white-space:nowrap}
+.nav.tb{width:auto;padding:0 .9vw;font-size:1vw;font-weight:600}
 .nav{font-size:1.5vw;background:#f1f5f9;border:0;border-radius:.6vw;width:2.6vw;height:2.6vw;cursor:pointer;color:#334155}
-.tg{display:flex;background:#e2e8f0;border-radius:.85vw;padding:.3vw}.tg button{border:0;background:none;padding:.6vw 1.2vw;font-size:1.15vw;border-radius:.6vw;font-weight:600;color:#0f172a;cursor:pointer}.tg .on{background:#fff;box-shadow:0 1px 4px #0002}
-.pfs{display:flex;gap:.4vw;flex-wrap:nowrap}.pf{display:flex;align-items:center;gap:.5vw;font-size:1.05vw;font-weight:600;background:#f8fafc;border-radius:2vw;padding:.3vw .8vw .3vw .3vw;white-space:nowrap;border:0;cursor:pointer;color:inherit}
+.tg{display:flex;background:#e2e8f0;border-radius:.85vw;padding:.3vw}.tg button{border:0;background:none;padding:.55vw .9vw;font-size:1.05vw;border-radius:.6vw;font-weight:600;color:#0f172a;cursor:pointer}.tg .on{background:#fff;box-shadow:0 1px 4px #0002}
+.pfs{display:flex;gap:.3vw;flex-wrap:nowrap;min-width:0;overflow:hidden}.bar .nav,.bar .tg{flex:none}.pf{display:flex;align-items:center;gap:.5vw;font-size:.95vw;font-weight:600;background:#f8fafc;border-radius:2vw;padding:.25vw .6vw .25vw .25vw;white-space:nowrap;border:0;cursor:pointer;color:inherit}
 .pf i{width:2vw;height:2vw;border-radius:50%;color:#fff;font-style:normal;display:grid;place-items:center}.pf.off{opacity:.35}
 .grid{flex:1;display:grid;gap:.5vw;min-height:0}
-.week{grid-template-columns:repeat(7,minmax(0,1fr))}
+.week{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.day.sum{background:transparent;outline:.12vw dashed #cbd5e1;outline-offset:-.12vw}.sum .row{display:flex;align-items:center;gap:.5vw;font-size:1vw;color:#334155;padding:.15vw .2vw}.sum .row i{width:.9vw;height:.9vw;border-radius:50%;flex:none}.sum .row b{margin-left:auto}
+.day.more{position:relative}.day.more::after{content:'more ↓';position:absolute;bottom:.3vw;right:.6vw;font-size:.75vw;color:#64748b;background:#fffd;padding:.1vw .4vw;border-radius:.3vw}
 .day{background:#f8fafc;border-radius:.85vw;padding:.6vw;display:flex;flex-direction:column;gap:.5vw;min-height:0;overflow:hidden}
 .today{background:#eff6ff;outline:.16vw solid #3b82f6;outline-offset:-.16vw}
 .dh{display:flex;justify-content:space-between;align-items:baseline;font-size:1.05vw;color:#64748b;padding:.2vw}.dh strong{font-size:1.75vw;color:#0f172a}
@@ -51,7 +54,7 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 <div class="wx" id="wx"><span class="ic">·</span><span>Loading weather…</span></div></div>
 <div class="main">
  <div class="cal">
-  <div class="bar"><button class="nav" id="prev">‹</button><h2 id="range"></h2><button class="nav" id="next">›</button>
+  <div class="bar"><button class="nav" id="prev">‹</button><h2 id="range"></h2><button class="nav" id="next">›</button><button class="nav tb" id="todayb">Today</button>
    <div class="pfs" id="pfs"></div>
    <div class="tg" id="tg"><button data-v="day">Day</button><button data-v="week" class="on">Week</button><button data-v="month">Month</button></div></div>
   <div id="wkh"></div>
@@ -80,14 +83,16 @@ function t12(hm,ampm){let [h,m]=hm.split(':').map(Number);const ap=h<12?'AM':'PM
 const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function color(names){const p=cfg.people.find(p=>p.name===names[0]);return p?p.color:'#64748b'}
 
-function tick(){const d=new Date();
+let curDay=today();
+function tick(){const d=new Date();const nd=today();
+ if(nd!==curDay){if(anchor===curDay)anchor=nd;curDay=nd;cache={};load(true)} // roll over at midnight (America/Chicago)
  $('time').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});
  $('date').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric',year:'numeric'});
  const t=today(); if(t!==tick.last){if(tick.last&&anchor===tick.last)anchor=t;tick.last=t;render()}
  if(d.getSeconds()===0)renderAgenda();}
 
 function rangeFor(){if(view==='day')return [anchor,anchor];
- if(view==='week'){const s=add(anchor,-dow(anchor));return [s,add(s,6)]}
+ if(view==='week')return [anchor,add(anchor,6)]; // rolling 7 days starting at anchor (today by default)
  const f=anchor.slice(0,8)+'01',s=add(f,-dow(f));return [s,add(s,41)]}
 
 async function getJSON(u){const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));return r.json()}
@@ -110,7 +115,11 @@ function render(){const [s,e]=rangeFor(),list=cache[s+'|'+e];const t=today(),g=$
  const n=view==='day'?1:view==='week'?7:42;let h='';
  for(let i=0;i<n;i++){const d=add(s,i),evs=eventsOn(list,d);const other=view==='month'&&d.slice(5,7)!==anchor.slice(5,7);
   h+=`<div class="day${d===t?' today':''}${other?' other':''}"><div class="dh"><span>${fmt(d,{weekday:view==='day'?'long':'short'})}</span><strong>${fmt(d,{day:'numeric'})}</strong></div><div class="evs">${evs.map(evHTML).join('')||(view==='day'?'<div class="empty">Nothing scheduled</div>':'')}</div></div>`}
- g.innerHTML=h;renderAgenda()}
+ if(view==='week'){const cnt={};let tot=0;for(let i=0;i<7;i++)for(const ev of eventsOn(list,add(s,i))){tot++;for(const p of (ev.people.length?ev.people:['Family']))cnt[p]=(cnt[p]||0)+1}
+  h+=`<div class="day sum"><div class="dh"><span>Next 7 days</span><strong>${tot}</strong></div><div class="evs">${cfg.people.filter(p=>cnt[p.name]).map(p=>`<div class="row"><i style="background:${p.color}"></i>${esc(p.name)}<b>${cnt[p.name]}</b></div>`).join('')||'<div class="empty">Nothing scheduled</div>'}</div></div>`}
+ g.innerHTML=h;
+ g.querySelectorAll('.day').forEach(d=>{const v=d.querySelector('.evs');if(v&&v.scrollHeight>v.clientHeight+2)d.classList.add('more')});
+ renderAgenda()}
 
 function renderAgenda(){const t=today(),list=cache[t+'|'+t];if(!list)return;const now=nowHM();
  const evs=eventsOn(list,t);const ad=evs.filter(e=>e.allDay),timed=evs.filter(e=>!e.allDay).filter(e=>e.end.slice(0,10)>t||e.end.slice(11,16)>now);
@@ -122,6 +131,7 @@ function renderPeople(){$('pfs').innerHTML=cfg.people.map(p=>`<button class="pf$
 $('pfs').onclick=e=>{const b=e.target.closest('.pf');if(!b)return;const n=b.dataset.n;hidden.has(n)?hidden.delete(n):hidden.add(n);renderPeople();render()};
 $('tg').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.v;[...$('tg').children].forEach(x=>x.classList.toggle('on',x===b));anchor=today();load()};
 $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
+$('todayb').onclick=()=>{anchor=today();load()};
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
 
 let ovTimer=null,seenRing=undefined;
