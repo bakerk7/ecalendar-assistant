@@ -16,6 +16,10 @@ Env:
   HA_URL / HA_TOKEN        Home Assistant base URL + long-lived token (read-only GET /api/states)
   DASHBOARD_HA_ENTITIES    comma list of entity_ids shown as header chips (default person.kyle_baker)
   DASHBOARD_CHORE_PEOPLE   comma list of profiles always shown in chores (default Jack,Liv)
+  DASHBOARD_ADD_PEOPLE     profiles offered in the '+ Add' form (default Jack,Liv,Mom,Dad,Bruce)
+
+Writes: POST /dashboard/api/events/create and /dashboard/api/chores/create create
+events/chores with the current eCalendar token only (run_token: never re-logs in).
 """
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ import hmac
 import json
 import os
 import threading
+import re
 import time
 import urllib.request
 from typing import Optional
@@ -80,8 +85,125 @@ def normalize(row):
             "people": [p["name"] for p in people(row.get("userCalendarCategorys") or [])]}
 
 
-def make_router(run, cache, parse_day) -> APIRouter:
+ADD_DEFAULT = "Jack,Liv,Mom,Dad,Bruce"
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def add_people(categories):
+    """[{name,id,color}] for the '+ Add' picker, matched to profiles by name.
+    An exact categoryName match wins over an alias (e.g. the soccer-team calendar)."""
+    want = [n.strip() for n in os.environ.get("DASHBOARD_ADD_PEOPLE", ADD_DEFAULT).split(",") if n.strip()]
+    out = []
+    for n in want:
+        hit = next((c for c in categories if (c.get("categoryName") or "").lower() == n.lower()), None)
+        if hit is None:
+            hit = next((c for c in categories if display_name(c.get("categoryName")) == n), None)
+        if hit is not None:
+            out.append({"name": n, "id": str(hit.get("userCalendarCategoryId")),
+                        "color": hit.get("categoryColor") or "#64748b"})
+    return out
+
+
+def _clean_title(body):
+    t = str((body or {}).get("title") or "").strip()
+    if not t:
+        raise HTTPException(400, "title required")
+    if len(t) > 120:
+        raise HTTPException(400, "title too long (max 120)")
+    return t
+
+
+def _clean_day(v):
+    v = str(v or "")
+    if not _DAY.match(v):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    try:
+        datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "invalid date")
+    return v
+
+
+def _clean_hm(v, name):
+    v = str(v or "")
+    if not _HM.match(v):
+        raise HTTPException(400, f"{name} must be HH:MM (24h)")
+    return v
+
+
+def _pick(ids, allowed):
+    ids = [str(i) for i in (ids or []) if str(i)]
+    by_id = {p["id"]: p for p in allowed}
+    if not ids or any(i not in by_id for i in ids):
+        raise HTTPException(400, "pick at least one profile from the list")
+    out = []
+    for i in ids:
+        if i not in out:
+            out.append(i)
+    return out
+
+
+def event_spec(body, allowed):
+    """Validated dashboard form -> ecal.create_event kwargs (local wall times)."""
+    title = _clean_title(body)
+    day = _clean_day(body.get("date"))
+    cats = _pick(body.get("profiles"), allowed)
+    if body.get("allDay"):
+        return {"title": title, "start": day, "all_day": True, "category": cats}
+    s = _clean_hm(body.get("start"), "start")
+    if body.get("end"):
+        e = _clean_hm(body.get("end"), "end")
+    else:
+        h, m = map(int, s.split(":"))
+        e = f"{h + 1:02d}:{m:02d}" if h < 23 else "23:59"
+    if e <= s:
+        raise HTTPException(400, "end must be after start")
+    return {"title": title, "start": f"{day} {s}:00", "end": f"{day} {e}:00",
+            "all_day": False, "category": cats, "reminders_min": (0,)}
+
+
+def chore_spec(body, allowed):
+    title = _clean_title(body)
+    day = _clean_day(body.get("date"))
+    cats = _pick(body.get("profiles"), allowed)
+    try:
+        stars = int(body.get("stars") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "stars must be a number")
+    if not 0 <= stars <= 20:
+        raise HTTPException(400, "stars must be 0-20")
+    at = _clean_hm(body.get("time"), "time") if body.get("time") else None
+    return {"title": title, "due": day, "categories": cats, "stars": stars, "time": at}
+
+
+def chore_body(spec, cat):
+    """One chore for one profile. Same body as ecal.create_task / the app's one-off
+    chore (all-day, due-date marker 23:59:59 local, emoji null). An optional time
+    becomes a popup reminder at that local time on the due day (minutes after
+    midnight -- the convention all-day events use for their 9:00 AM = 540)."""
+    d = spec["due"]
+    body = {
+        "deviceId": str(ecal.DEVICE), "title": spec["title"], "description": "",
+        "eventType": "2", "taskType": 0,
+        "isAllDay": 1, "startDatetime": f"{d} 23:59:59",
+        "userCalendarCategoryIds": [cat], "zone": ecal.tz_offset(d),
+        "emoji": None, "starCount": str(spec["stars"]), "priority": "0",
+        "timerDurationSeconds": None,
+        "taskTimeoutPenalty": 0, "taskTimeoutPenaltyStarPercent": "0.00",
+        "taskTimeoutPenaltyStarCount": 0,
+        "isRecurring": 0, "eventRecurrenceRule": None,
+        "timeReminders": [], "reminderPipelineVersion": 1,
+    }
+    if spec.get("time"):
+        h, m = map(int, spec["time"].split(":"))
+        body["timeReminders"] = [{"method": "popup", "timeUnit": "minute", "value": h * 60 + m}]
+    return body
+
+
+def make_router(run, cache, parse_day, run_token=None) -> APIRouter:
     r = APIRouter(include_in_schema=False)
+    run_token = run_token or run
 
     @r.get("/dashboard")
     def index_redirect():
@@ -106,6 +228,7 @@ def make_router(run, cache, parse_day) -> APIRouter:
         return {
             "timezone": ecal.TIMEZONE,
             "people": people(cats),
+            "addPeople": add_people(cats),
             "camera": {"url": os.environ.get("DASHBOARD_CAMERA_URL", ""),
                        "name": os.environ.get("DASHBOARD_CAMERA_NAME", "Camera")},
             "weather": {"lat": float(os.environ.get("DASHBOARD_LAT", "45.0725")),
@@ -183,6 +306,35 @@ def make_router(run, cache, parse_day) -> APIRouter:
         cache.clear()
         data = (res or {}).get("data") or {}
         return {"eventId": eid, "done": bool(data.get("completedStatus")), **chore_payload(day)}
+
+    def _allowed():
+        cats = cache.get_or_set("categories", lambda: run_token(lambda t: ecal.list_categories(t)))
+        return add_people(cats)
+
+    @r.post("/dashboard/api/events/create")
+    def event_create(body: dict = Body(...)):
+        allowed = _allowed()
+        spec = event_spec(body, allowed)
+        res = run_token(lambda t: ecal.create_event(tok=t, **spec))
+        cache.clear()
+        names = {p["id"]: p["name"] for p in allowed}
+        return {"ok": (res or {}).get("code") == 200, "title": spec["title"],
+                "start": spec["start"], "end": spec.get("end"), "allDay": spec["all_day"],
+                "profiles": [names.get(c, c) for c in spec["category"]]}
+
+    @r.post("/dashboard/api/chores/create")
+    def chore_create(body: dict = Body(...)):
+        allowed = _allowed()
+        spec = chore_spec(body, allowed)
+        names = {p["id"]: p["name"] for p in allowed}
+        made = []
+        for cat in spec["categories"]:  # the API takes one profile per chore
+            res = run_token(lambda t, c=cat: ecal.api("/app/task", chore_body(spec, c), t))
+            ids = ((res or {}).get("data") or {}).get("eventIds") or []
+            made.append({"profile": names.get(cat, cat), "eventIds": [str(i) for i in ids]})
+        cache.clear()
+        return {"ok": True, "title": spec["title"], "date": spec["due"], "stars": spec["stars"],
+                "time": spec["time"], "created": made}
 
     @r.get("/dashboard/api/events")
     def events(start: str = Query(...), end: str = Query(...)):

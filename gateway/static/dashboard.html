@@ -55,10 +55,30 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 .cb.done{opacity:.55}.cb.done .bx{background:var(--c)}.cb.done .tt{text-decoration:line-through}.cb .sv{margin-left:auto;color:#b45309;white-space:nowrap}.cb.busy{opacity:.3}.cb.ro .bx{border-style:dashed}
 #night{position:fixed;inset:0;z-index:40;background:#000;display:none;align-items:center;justify-content:center;flex-direction:column;color:#334155}
 #night.on{display:flex}#night .nt{font-size:9vw;font-weight:300;font-variant-numeric:tabular-nums;color:#3b4252}#night .nd{font-size:1.6vw;color:#2a303b}
+.addb{flex:none;border:0;background:#2563eb;color:#fff;font-weight:800;font-size:1.6vw;padding:.9vw 1.8vw;border-radius:1vw;cursor:pointer;box-shadow:0 2px 8px #2563eb55;min-height:4vw}
+.addb:active{transform:scale(.97)}
+#am{position:fixed;inset:0;z-index:60;background:#0f172acc;display:none;align-items:flex-start;justify-content:center;padding-top:2vh}
+#am.on{display:flex}
+.amb{width:62vw;max-height:94vh;overflow-y:auto;background:#fff;border-radius:1.4vw;padding:1.6vw 2vw;display:flex;flex-direction:column;gap:1.1vw;box-shadow:0 10px 40px #0006}
+.amh{display:flex;align-items:center;gap:1vw}.amh h2{font-size:2vw;margin-right:auto}
+.amx{border:0;background:#f1f5f9;border-radius:50%;width:4.2vw;height:4.2vw;font-size:2vw;cursor:pointer;color:#334155}
+.seg{display:flex;background:#e2e8f0;border-radius:1vw;padding:.35vw}.seg button{flex:1;border:0;background:none;font-size:1.5vw;font-weight:700;padding:.9vw 2vw;border-radius:.75vw;color:#334155;cursor:pointer;min-height:4vw}.seg .on{background:#fff;color:#0f172a;box-shadow:0 1px 4px #0002}
+.fl{display:flex;flex-direction:column;gap:.5vw}.fl>label{font-size:1.1vw;font-weight:700;color:#475569}
+.ti{font-size:1.6vw;padding:.9vw 1.1vw;border:.15vw solid #cbd5e1;border-radius:.8vw;width:100%;min-height:4vw;font-family:inherit;color:#0f172a;background:#fff}
+.ti:focus{outline:none;border-color:#2563eb}
+.chips{display:flex;flex-wrap:wrap;gap:.6vw}
+.chip{border:.15vw solid #cbd5e1;background:#f8fafc;color:#0f172a;font-size:1.3vw;font-weight:600;padding:.7vw 1.3vw;border-radius:2.5vw;cursor:pointer;min-height:3.6vw;display:flex;align-items:center;gap:.6vw}
+.chip.on{background:var(--c,#2563eb);border-color:var(--c,#2563eb);color:#fff}
+.chip i{width:1.3vw;height:1.3vw;border-radius:50%;background:var(--c,#64748b);border:.12vw solid #fff}
+.row2{display:flex;gap:1vw;align-items:flex-end}.row2 .fl{flex:1}
+.amf{display:flex;gap:1vw;align-items:center;margin-top:.4vw}.amf .msg{margin-right:auto;font-size:1.2vw;color:#dc2626}.amf .msg.ok{color:#15803d}
+.btn{border:0;border-radius:.9vw;font-size:1.6vw;font-weight:800;padding:1vw 2.4vw;cursor:pointer;min-height:4.2vw}.btn.pri{background:#2563eb;color:#fff}.btn.sec{background:#f1f5f9;color:#334155}.btn:disabled{opacity:.45}
+.stp{display:flex;align-items:center;gap:.6vw}.stp button{width:4vw;height:4vw;font-size:2vw;border:0;border-radius:.8vw;background:#f1f5f9;cursor:pointer}.stp b{font-size:1.7vw;min-width:5vw;text-align:center}
+.hide{display:none!important}
 .foot{position:fixed;bottom:.3vw;right:1.6vw;font-size:.7vw;color:#94a3b8}.foot.err{color:#dc2626}
 </style></head><body>
 <div class="top"><div class="time" id="time">--:--</div><div class="date" id="date"></div>
-<div class="hchips" id="hchips"></div><!-- reserved: Home Assistant status chips -->
+<div class="hchips" id="hchips"></div><button class="addb" id="addb">+ Add</button><!-- reserved: Home Assistant status chips -->
 <div class="wx" id="wx"><span class="ic">·</span><span>Loading weather…</span></div></div>
 <div class="main">
  <div class="cal">
@@ -76,6 +96,17 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 <div class="foot" id="foot"></div>
 <div id="night"><div class="nt" id="ntime"></div><div class="nd" id="ndate"></div></div>
 <div class="ov" id="ov"><div class="lbl" id="ovlbl">Someone's at the front door</div><div class="box" id="ovbox"><span class="live">● LIVE</span></div><div class="hint">Tap anywhere to close</div></div>
+<div id="am"><div class="amb">
+ <div class="amh"><h2 id="amt">Add</h2><div class="seg" id="amk"><button data-k="event" class="on">📅 Event</button><button data-k="task">✅ Task</button></div><button class="amx" id="amx">×</button></div>
+ <div class="fl"><label>Title</label><input class="ti" id="aTitle" maxlength="120" autocomplete="off" placeholder="What is it?"></div>
+ <div class="fl"><label id="aWhoL">For</label><div class="chips" id="aWho"></div></div>
+ <div class="fl"><label>Date</label><div class="chips" id="aDays"></div></div>
+ <div id="evOnly" class="fl"><label>Time</label><div class="row2"><div class="chips"><button class="chip on" id="aAll">All day</button><button class="chip" id="aTimed">Set time</button></div>
+  <div class="fl" id="aTimes"><div class="row2"><div class="fl"><label>Start</label><input class="ti" type="time" id="aStart" value="09:00"></div><div class="fl"><label>End</label><input class="ti" type="time" id="aEnd" value="10:00"></div></div></div></div></div>
+ <div id="tkOnly" class="row2 hide"><div class="fl"><label>Stars (optional)</label><div class="stp"><button id="sMinus">−</button><b id="sVal">0 ⭐</b><button id="sPlus">+</button></div></div>
+  <div class="fl"><label>Time (optional, reminder)</label><div class="row2"><input class="ti" type="time" id="aTkTime"><button class="chip" id="aTkClr">No time</button></div></div></div>
+ <div class="amf"><span class="msg" id="aMsg"></span><button class="btn sec" id="aCancel">Cancel</button><button class="btn pri" id="aSave">Add event</button></div>
+</div></div>
 <script>
 const TZ='America/Chicago', REFRESH=5*60*1000;
 let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
@@ -142,6 +173,51 @@ $('tg').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.datas
 $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
 $('todayb').onclick=()=>{anchor=today();load()};
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
+
+// ---------------------------------------------------------------- + Add (event / task)
+let addKind='event',addDay=null,addWho=[],addAllDay=true,addStars=0,addBusy=false;
+function addOpen(){addKind='event';addDay=today();addWho=[];addAllDay=true;addStars=0;$('aTitle').value='';$('aTkTime').value='';$('aMsg').textContent='';$('aMsg').className='msg';
+ const p=partsInTZ(new Date()),h=Math.min(22,(+p.hour)+1);$('aStart').value=String(h).padStart(2,'0')+':00';$('aEnd').value=String(h+1).padStart(2,'0')+':00';
+ addRender();$('am').classList.add('on')}
+function addClose(){$('am').classList.remove('on');if(document.activeElement)document.activeElement.blur()}
+function addRender(){const ev=addKind==='event';
+ [...$('amk').children].forEach(b=>b.classList.toggle('on',b.dataset.k===addKind));
+ $('amt').textContent=ev?'Add event':'Add task';$('aSave').textContent=ev?'Add event':'Add task';
+ $('aWhoL').textContent=ev?'For (tap one or more)':'For (tap one or more · one chore each)';
+ $('evOnly').classList.toggle('hide',!ev);$('tkOnly').classList.toggle('hide',ev);
+ const ps=cfg.addPeople||[];
+ $('aWho').innerHTML=ps.map(p=>`<button class="chip${addWho.indexOf(p.id)>=0?' on':''}" style="--c:${p.color}" data-id="${esc(p.id)}"><i></i>${esc(p.name)}</button>`).join('')+
+  (ps.some(p=>p.name==='Jack')&&ps.some(p=>p.name==='Liv')?'<button class="chip" data-kids="1">👧👦 Both kids</button>':'')||'<span class="empty">No profiles</span>';
+ let dh='';for(let i=0;i<7;i++){const d=add(today(),i);dh+=`<button class="chip${d===addDay?' on':''}" data-d="${d}">${i===0?'Today':i===1?'Tomorrow':fmt(d,{weekday:'short',month:'short',day:'numeric'})}</button>`}
+ const other=addDay>add(today(),6)||addDay<today();
+ $('aDays').innerHTML=dh+`<input class="ti" type="date" id="aDate" style="width:auto;min-height:3.6vw;font-size:1.3vw${other?';border-color:#2563eb':''}" value="${addDay}">`;
+ $('aDate').onchange=e=>{if(e.target.value){addDay=e.target.value;addRender()}};
+ $('aAll').classList.toggle('on',addAllDay);$('aTimed').classList.toggle('on',!addAllDay);$('aTimes').classList.toggle('hide',addAllDay);
+ $('sVal').textContent=addStars+' ⭐'}
+$('addb').onclick=addOpen;$('amx').onclick=addClose;$('aCancel').onclick=addClose;
+$('am').onclick=e=>{if(e.target===$('am'))addClose()};
+$('amk').onclick=e=>{const b=e.target.closest('button');if(!b)return;addKind=b.dataset.k;addRender()};
+$('aWho').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;const ps=cfg.addPeople||[];
+ if(b.dataset.kids){const ids=ps.filter(p=>p.name==='Jack'||p.name==='Liv').map(p=>p.id);const all=ids.every(i=>addWho.indexOf(i)>=0);
+  addWho=addWho.filter(i=>ids.indexOf(i)<0);if(!all)addWho=addWho.concat(ids)}
+ else{const id=b.dataset.id,k=addWho.indexOf(id);if(k>=0)addWho.splice(k,1);else addWho.push(id)}addRender()};
+$('aDays').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;addDay=b.dataset.d;addRender()};
+$('aAll').onclick=()=>{addAllDay=true;addRender()};$('aTimed').onclick=()=>{addAllDay=false;addRender()};
+$('aStart').onchange=()=>{const s=$('aStart').value;if(s&&$('aEnd').value<=s){const h=Math.min(23,+s.slice(0,2)+1);$('aEnd').value=(h===+s.slice(0,2)?'23:59':String(h).padStart(2,'0')+s.slice(2))}};
+$('sMinus').onclick=()=>{addStars=Math.max(0,addStars-1);addRender()};$('sPlus').onclick=()=>{addStars=Math.min(20,addStars+1);addRender()};
+$('aTkClr').onclick=()=>{$('aTkTime').value=''};
+$('aSave').onclick=async()=>{if(addBusy)return;const m=$('aMsg');m.className='msg';
+ const title=$('aTitle').value.trim();if(!title){m.textContent='Add a title';return}
+ if(!addWho.length){m.textContent='Pick who it\'s for';return}
+ let url,body;if(addKind==='event'){url='api/events/create';body={title:title,date:addDay,allDay:addAllDay,profiles:addWho};
+  if(!addAllDay){body.start=$('aStart').value;body.end=$('aEnd').value;if(!body.start||!body.end||body.end<=body.start){m.textContent='End must be after start';return}}}
+ else{url='api/chores/create';body={title:title,date:addDay,profiles:addWho,stars:addStars};if($('aTkTime').value)body.time=$('aTkTime').value}
+ addBusy=true;$('aSave').disabled=true;m.textContent='Saving…';m.className='msg ok';
+ try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){let d='';try{d=(await r.json()).detail}catch(x){}throw new Error(d||r.status)}
+  m.textContent='Added ✓';cache={};load(true);loadChores();setTimeout(addClose,700)}
+ catch(err){m.className='msg';m.textContent='Could not save: '+err.message}
+ finally{addBusy=false;$('aSave').disabled=false}};
 
 let ovTimer=null,seenRing=undefined;
 const camHost=u=>(u||'').replace('{host}',location.hostname);

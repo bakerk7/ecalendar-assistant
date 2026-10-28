@@ -267,9 +267,23 @@ def create_app(session: Optional[Session] = None, cache_ttl: Optional[float] = N
         b["eventId"] = event_id
         return write("/app/event/delete/selective", b)
 
+    def run_token(fn):
+        """Like run(), but token-only: never logs in (dashboard writes)."""
+        tok = session.token
+        if not tok:
+            raise HTTPException(503, "eCalendar session unavailable: no token")
+        try:
+            return fn(tok)
+        except ecal.TokenReplacedError:
+            raise HTTPException(503, "eCalendar token was replaced; not re-logging in for this request")
+        except RuntimeError as e:
+            raise HTTPException(502, str(e))
+        except (OSError, TimeoutError) as e:
+            raise HTTPException(504, f"upstream error: {type(e).__name__}")
+
     if os.environ.get("DASHBOARD_ENABLED", "1") != "0":
         from gateway.dashboard import make_router
-        app.include_router(make_router(run, cache, _parse_day))
+        app.include_router(make_router(run, cache, _parse_day, run_token))
 
     @app.post("/cache/clear", dependencies=[Depends(auth)])
     def clear_cache():

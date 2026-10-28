@@ -225,3 +225,115 @@ def test_dashboard_ha_chip_levels():
     assert ha_chip({"entity_id": "lock.front", "state": "locked", "attributes": {}})["level"] == "ok"
     c = ha_chip({"entity_id": "person.kyle_baker", "state": "not_home", "attributes": {"friendly_name": "Kyle Baker"}})
     assert c["name"] == "Kyle" and c["label"] == "Away"
+
+
+# ------------------------------------------------------------ dashboard '+ Add'
+
+PROFILE_ROWS = [
+    {"userCalendarCategoryId": 11, "categoryName": "Boys U9 Academy 2 White", "categoryColor": "#111", "categoryType": 0},
+    {"userCalendarCategoryId": 1, "categoryName": "Jack", "categoryColor": "#00F", "categoryType": 1},
+    {"userCalendarCategoryId": 2, "categoryName": "Liv", "categoryColor": "#F0F", "categoryType": 1},
+    {"userCalendarCategoryId": 3, "categoryName": "Mom", "categoryColor": "#F00", "categoryType": 0},
+    {"userCalendarCategoryId": 4, "categoryName": "Dad", "categoryColor": "#0F0", "categoryType": 0},
+    {"userCalendarCategoryId": 5, "categoryName": "Bruce", "categoryColor": "#A52", "categoryType": 0},
+    {"userCalendarCategoryId": 6, "categoryName": "Family", "categoryColor": "#999", "categoryType": 0},
+]
+
+
+class ProfileAPI(FakeAPI):
+    def __call__(self, path, body, tok=None, method="POST"):
+        if path == "/app/user/event/category/list":
+            self.calls.append((path, body, tok))
+            if tok not in self.valid:
+                raise ecal.TokenReplacedError("401")
+            return {"code": 200, "rows": PROFILE_ROWS}
+        if path == "/app/task":
+            self.calls.append((path, body, tok))
+            return {"code": 200, "data": {"createdCount": 1, "eventIds": [f"t{len(self.calls)}"]}}
+        return super().__call__(path, body, tok, method)
+
+
+def test_dashboard_add_people_exact_name_wins():
+    from gateway import dashboard
+    ps = dashboard.add_people(PROFILE_ROWS)
+    assert [(p["name"], p["id"]) for p in ps] == [("Jack", "1"), ("Liv", "2"), ("Mom", "3"),
+                                                   ("Dad", "4"), ("Bruce", "5")]
+
+
+def test_dashboard_create_event_multi_profile_timed(monkeypatch):
+    fake = ProfileAPI()
+    c, _ = client(fake, monkeypatch)
+    assert [p["name"] for p in c.get("/dashboard/api/config").json()["addPeople"]] == \
+        ["Jack", "Liv", "Mom", "Dad", "Bruce"]
+    r = c.post("/dashboard/api/events/create", json={
+        "title": "Dentist", "date": "2026-11-05", "allDay": False,
+        "start": "15:30", "end": "16:15", "profiles": ["1", "2"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["profiles"] == ["Jack", "Liv"]
+    path, body, tok = fake.paths("/app/event/add")[-1]
+    assert tok == "tok-0"
+    assert body["userCalendarCategoryIds"] == ["1", "2"]
+    assert body["isAllDay"] == 0
+    assert body["startDatetime"] == "2026-11-05 21:30:00"  # CST -> UTC
+    assert body["endDatetime"] == "2026-11-05 22:15:00"
+
+
+def test_dashboard_create_event_all_day_and_default_end(monkeypatch):
+    fake = ProfileAPI()
+    c, _ = client(fake, monkeypatch)
+    r = c.post("/dashboard/api/events/create", json={
+        "title": "No school", "date": "2026-11-06", "allDay": True, "profiles": ["1"]})
+    assert r.status_code == 200
+    b = fake.paths("/app/event/add")[-1][1]
+    assert (b["isAllDay"], b["startDatetime"], b["endDatetime"]) == (1, "2026-11-06 00:00:00", "2026-11-06 23:59:59")
+    c.post("/dashboard/api/events/create", json={"title": "x", "date": "2026-11-06", "start": "09:00", "profiles": ["3"]})
+    b = fake.paths("/app/event/add")[-1][1]
+    assert b["endDatetime"] == "2026-11-06 16:00:00"
+
+
+@pytest.mark.parametrize("body", [
+    {"title": "", "date": "2026-11-05", "allDay": True, "profiles": ["1"]},
+    {"title": "x", "date": "11/05/2026", "allDay": True, "profiles": ["1"]},
+    {"title": "x", "date": "2026-11-05", "allDay": True, "profiles": []},
+    {"title": "x", "date": "2026-11-05", "allDay": True, "profiles": ["6"]},  # Family not offered
+    {"title": "x", "date": "2026-11-05", "start": "10:00", "end": "09:00", "profiles": ["1"]},
+    {"title": "x", "date": "2026-11-05", "start": "25:00", "profiles": ["1"]},
+])
+def test_dashboard_create_event_validation(monkeypatch, body):
+    fake = ProfileAPI()
+    c, _ = client(fake, monkeypatch)
+    assert c.post("/dashboard/api/events/create", json=body).status_code == 400
+    assert not fake.paths("/app/event/add")
+
+
+def test_dashboard_create_chore_one_per_profile(monkeypatch):
+    fake = ProfileAPI()
+    c, _ = client(fake, monkeypatch)
+    r = c.post("/dashboard/api/chores/create", json={
+        "title": "Feed Bruce", "date": "2026-11-05", "profiles": ["1", "2"], "stars": 2, "time": "17:30"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert [x["profile"] for x in d["created"]] == ["Jack", "Liv"]
+    calls = fake.paths("/app/task")
+    assert len(calls) == 2
+    b = calls[0][1]
+    assert b["userCalendarCategoryIds"] == ["1"] and calls[1][1]["userCalendarCategoryIds"] == ["2"]
+    assert b["eventType"] == "2" and b["isAllDay"] == 1 and b["startDatetime"] == "2026-11-05 23:59:59"
+    assert b["starCount"] == "2" and b["emoji"] is None
+    assert b["timeReminders"] == [{"method": "popup", "timeUnit": "minute", "value": 1050}]
+
+
+def test_dashboard_create_chore_requires_profile_and_valid_stars(monkeypatch):
+    fake = ProfileAPI()
+    c, _ = client(fake, monkeypatch)
+    assert c.post("/dashboard/api/chores/create", json={"title": "x", "date": "2026-11-05", "profiles": []}).status_code == 400
+    assert c.post("/dashboard/api/chores/create", json={"title": "x", "date": "2026-11-05", "profiles": ["1"], "stars": 99}).status_code == 400
+    assert not fake.paths("/app/task")
+
+
+def test_dashboard_create_never_relogs_in(monkeypatch):
+    fake = ProfileAPI(valid=("other",))
+    c, s = client(fake, monkeypatch, email="k@x", password="pw")
+    r = c.post("/dashboard/api/events/create", json={"title": "x", "date": "2026-11-05", "allDay": True, "profiles": ["1"]})
+    assert r.status_code == 503
+    assert not fake.paths("/app/user/login") and s.relogins == 0
