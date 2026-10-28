@@ -193,7 +193,7 @@ button{font-family:inherit;color:inherit}
 // CAM_MODE 'canvas-frames': ONE reused <canvas>, draws frame.jpeg snapshots every CAM_FRAME_MS via ONE reused Image
 //          (no overlapping requests). Default: avoids Chromium 74's MJPEG <img> GPU-memory leak.
 // CAM_MODE 'img-recycle'  : MJPEG <img> (stream.mjpeg), fully removed + recreated every CAM_RECYCLE_MS.
-const CAM_MODE='canvas-frames';
+const CAM_MODE='img-recycle';
 const CAM_SRC='doorbell_mjpeg';            // go2rtc source (480-640w transcode)
 const CAM_FRAME_MS=220;                    // canvas-frames: delay between frames (~4-5 fps)
 const CAM_RECYCLE_MS=60000;                // img-recycle: tear down + recreate the <img> this often
@@ -353,7 +353,7 @@ function openCam(ring){const c=cfg.camera||{};if(!c.url)return;$('ov').classList
  $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
  if(!$('ovfeed')){const f=document.createElement('div');f.className='cfeed';f.id='ovfeed';$('ovbox').prepend(f)}
  camSync(); // CamFeed.start() stops the tile stream first: only one stream
- wake(120000);clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
+ wake(120000);clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,ring?30000:60000)}
 function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');camSync()}
 function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring
 $('ov').onclick=closeCam;

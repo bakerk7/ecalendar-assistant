@@ -14,7 +14,8 @@ Env:
   DASHBOARD_WEATHER_UA     User-Agent sent to NWS (they require a contact)
   DASHBOARD_NIGHT_START/END  night-dim window, local HH:MM (default 21:00 / 06:00)
   HA_URL / HA_TOKEN        Home Assistant base URL + long-lived token (read-only GET /api/states)
-  DASHBOARD_HA_ENTITIES    comma list of entity_ids shown as header chips (default person.kyle_baker)
+  DASHBOARD_HA_ENTITIES    comma list of entity_id[=Label] shown as header chips (default person.kyle_baker)
+  DASHBOARD_DOORBELL_ENTITY HA event entity polled for rings (default event.doorbell_doorbell)
   DASHBOARD_CHORE_PEOPLE   comma list of profiles always shown in chores (default Jack,Liv)
   DASHBOARD_ADD_PEOPLE     profiles offered in the '+ Add' form (default Jack,Liv,Mom,Dad,Bruce)
 
@@ -373,8 +374,29 @@ def make_router(run, cache, parse_day, run_token=None) -> APIRouter:
         ring["source"] = source
         return dict(ring)
 
+    ha_ring = {"seen": None, "at": 0.0}
+
+    def _poll_ha_ring():
+        # HA event entity (e.g. UniFi Protect event.doorbell_doorbell): its state becomes a new
+        # timestamp on each ring. Read-only GET, cached ~1.5s; first value seen is the baseline.
+        eid = os.environ.get("DASHBOARD_DOORBELL_ENTITY", "event.doorbell_doorbell").strip()
+        url, tok = os.environ.get("HA_URL", "").rstrip("/"), os.environ.get("HA_TOKEN", "")
+        if not (eid and url and tok) or time.time() - ha_ring["at"] < 1.5:
+            return
+        ha_ring["at"] = time.time()
+        try:
+            req = urllib.request.Request(f"{url}/api/states/{eid}", headers={"Authorization": "Bearer " + tok})
+            with urllib.request.urlopen(req, timeout=3) as f:
+                st = str(json.loads(f.read().decode()).get("state"))
+        except Exception:
+            return
+        if ha_ring["seen"] is not None and st != ha_ring["seen"] and st not in ("unknown", "unavailable", "None"):
+            _mark("ha")
+        ha_ring["seen"] = st
+
     @r.get("/dashboard/api/doorbell")
     def doorbell():
+        _poll_ha_ring()
         return {**ring, "now": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
     @r.post("/dashboard/api/doorbell/ring")
@@ -495,6 +517,9 @@ def ha_chip(st):
         name = name.split()[0]
         label = "Home" if state == "home" else ("Away" if state == "not_home" else state.replace("_", " ").title())
         level = "ok" if state == "home" else "info"
+    elif dom == "binary_sensor" and a.get("device_class") in ("door", "garage_door", "window", "opening"):
+        label = {"on": "Open", "off": "Closed"}.get(state, state.title())
+        level = "warn" if state == "on" else "ok"
     else:
         label = state.replace("_", " ").title()
         level = "warn" if state in ATTENTION.get(dom, set()) else "ok"
@@ -510,11 +535,13 @@ def fetch_home():
     url, tok = os.environ.get("HA_URL", "").rstrip("/"), os.environ.get("HA_TOKEN", "")
     if not url or not tok:
         return {"chips": [], "configured": False}
-    want = [e.strip() for e in os.environ.get("DASHBOARD_HA_ENTITIES", "person.kyle_baker").split(",") if e.strip()]
+    # comma list; each item is entity_id or entity_id=Friendly label
+    want = [e.strip().split("=", 1) for e in os.environ.get("DASHBOARD_HA_ENTITIES", "person.kyle_baker").split(",") if e.strip()]
+    want = [(w[0].strip(), w[1].strip() if len(w) > 1 else None) for w in want]
     req = urllib.request.Request(url + "/api/states", headers={"Authorization": "Bearer " + tok})
     with urllib.request.urlopen(req, timeout=8) as f:
         states = {s.get("entity_id"): s for s in json.loads(f.read().decode())}
-    return {"configured": True, "chips": [ha_chip(states[e]) for e in want if e in states]}
+    return {"configured": True, "chips": [{**ha_chip(states[e]), **({"name": n} if n else {})} for e, n in want if e in states]}
 
 
 def get_home():
