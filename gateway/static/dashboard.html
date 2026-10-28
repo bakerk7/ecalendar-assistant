@@ -457,26 +457,27 @@ $('aSave').onclick=async()=>{if(addBusy)return;const m=$('aMsg');m.className='ms
 
 let ovTimer=null,seenRing=undefined;
 const camHost=u=>(u||'').replace('{host}',location.hostname);
-function openCam(ring){const c=cfg.camera||{};if(!c.url)return;snapStop();
+function openCam(ring){const c=cfg.camera||{};if(!c.url)return;$('ov').classList.add('on');feedStop(); // stop sidebar MJPEG before the overlay stream opens
  $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
  if(!$('ovbox').querySelector('iframe')){const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay; fullscreen';
   f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.style.pointerEvents='none';$('ovbox').prepend(f)}
  wake(120000);$('ov').classList.add('on');clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
-function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f){f.src='about:blank';f.remove()}snapTick()}
+function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f){f.src='about:blank';f.remove()}feedStart()}
 function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring (no stream is loaded until a ring)
 $('ov').onclick=closeCam;
-// sidebar doorbell snapshot (no live stream): go2rtc frame.jpeg every ~8s, preloaded offscreen, swapped on load
-const SNAP_URL='http://{host}:1984/api/frame.jpeg?src=doorbell',SNAP_MS=8000;
-let snapT=null,snapBusy=false,snapOk=false;
-function snapPaused(){return document.hidden||$('night').classList.contains('on')||$('ov').classList.contains('on')}
-function snapStop(){clearTimeout(snapT);snapT=null}
-function snapTick(){snapStop();if(snapPaused())return;snapT=setTimeout(snapTick,SNAP_MS);
- if(snapBusy)return;snapBusy=true;
- const im=new Image();
- im.onload=function(){snapBusy=false;$('camimg').src=im.src;if(!snapOk){snapOk=true;$('camp').className='up cam ok'}};
- im.onerror=function(){snapBusy=false;snapOk=false;$('camp').className='up cam';$('camtx').textContent='Front door camera unavailable'};
- im.src=camHost(SNAP_URL)+'&t='+Date.now()}
-document.addEventListener('visibilitychange',function(){if(document.hidden)snapStop();else snapTick()});
+// sidebar doorbell feed: go2rtc MJPEG in a plain <img> (no iframe). Only one stream at a time:
+// stopped (src='') at night, when document.hidden and before the ring overlay opens its own stream.
+const MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src=doorbell',RETRY_MS=5000;
+let feedOn=false,feedRetry=null;
+function feedPaused(){return document.hidden||$('night').classList.contains('on')||$('ov').classList.contains('on')}
+function feedStop(){if(!feedOn&&!feedRetry&&!$('camimg').getAttribute('src'))return;clearTimeout(feedRetry);feedRetry=null;feedOn=false;const im=$('camimg');im.onload=im.onerror=null;im.removeAttribute('src');im.src='';$('camp').className='up cam'}
+function feedStart(){if(feedOn||feedRetry||feedPaused())return;feedOn=true;const im=$('camimg');
+ $('camtx').textContent='Connecting to front door…';
+ im.onload=function(){$('camp').className='up cam ok'}; // fires on first MJPEG frame
+ im.onerror=function(){feedStop();$('camtx').textContent='Front door camera offline · reconnecting…';
+  feedRetry=setTimeout(function(){feedRetry=null;feedStart()},RETRY_MS)};
+ im.src=camHost(MJPEG_URL)+'&t='+Date.now()}
+document.addEventListener('visibilitychange',function(){if(document.hidden)feedStop();else feedStart()});
 $('camp').onclick=function(){openCam(false)};
 async function pollRing(){try{const d=await getJSON('api/doorbell');
   if(seenRing===undefined)seenRing=d.last_ring;
@@ -511,7 +512,7 @@ function isNight(){const n=cfg.night||{start:'21:00',end:'06:00'},p=partsInTZ(ne
  if(location.hash==='#night')return true;return a<=b?(m>=a&&m<b):(m>=a||m<b)}
 function wake(ms){wakeUntil=Date.now()+(ms||120000);nightTick()}
 function nightTick(){const on=isNight()&&Date.now()>wakeUntil&&!$('ov').classList.contains('on');$('night').classList.toggle('on',on);
- if(on)snapStop();else if(!snapT)snapTick();
+ if(on)feedStop();else feedStart();
  if(on){const d=new Date();$('ntime').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});$('ndate').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric'})}}
 $('night').addEventListener('click',e=>{e.stopPropagation();wake(120000)});
 document.addEventListener('touchstart',()=>{if(!$('night').classList.contains('on')&&isNight())wake(120000)},{passive:true});
@@ -519,7 +520,7 @@ setInterval(nightTick,1000);
 
 (async()=>{tick();setInterval(tick,1000);
  try{cfg=await getJSON('api/config')}catch(e){$('foot').className='foot err';$('foot').textContent='Config unavailable'}
- renderPeople();setupCamera();snapTick();nightTick();weather();loadChores();loadHome();await load();
+ renderPeople();setupCamera();feedStart();nightTick();weather();loadChores();loadHome();await load();
  setInterval(()=>{cache={};load(true)},REFRESH);setInterval(weather,15*60*1000);setInterval(loadChores,60000);setInterval(loadHome,15000);
  setInterval(()=>location.reload(),6*3600*1000);})();
 </script>
