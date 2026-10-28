@@ -127,7 +127,9 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 const TZ='America/Chicago', REFRESH=5*60*1000;
 let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
 const $=id=>document.getElementById(id);
-function partsInTZ(d){const o={};new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(p=>o[p.type]=p.value);return o}
+function partsInTZ(d){const o={};new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(p=>o[p.type]=p.value);
+ // Chromium 74 (V8 7.4) ignores hourCycle and returns 12h hour + dayPeriod; normalize to 00-23
+ let h=+o.hour%12;if(o.dayPeriod){if(/p/i.test(o.dayPeriod))h+=12}else h=+o.hour%24;o.hour=(h<10?'0':'')+h;return o}
 function today(){const p=partsInTZ(new Date());return `${p.year}-${p.month}-${p.day}`}
 function nowHM(){const p=partsInTZ(new Date());return `${p.hour}:${p.minute}`}
 const D=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(Date.UTC(y,m-1,d))};
