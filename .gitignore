@@ -1,6 +1,7 @@
 # your eCalendar token / device / category ids -- never commit these
 .env
 .env.*
+!.env.example
 *.plist
 # written by extract_ecal_config.py --write / read by ecal.load_auth_file()
 ECALENDAR_INFO.bin

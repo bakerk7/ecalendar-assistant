@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.git
+__pycache__
+*.pyc
+tests
+*.plist
+ECALENDAR_INFO.bin
+soccer_sync.py
