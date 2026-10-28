@@ -191,3 +191,18 @@ def test_upstream_error_is_502(monkeypatch):
     c, _ = client(boom, monkeypatch)
     r = c.get("/whoami")
     assert r.status_code == 502 and "validation" in r.json()["detail"]
+
+
+def test_dashboard_normalize_and_names():
+    from gateway import dashboard
+    assert dashboard.display_name("Boys U9 Academy 2 White") == "Jack"
+    assert dashboard.display_name("Shared Calendar you@example.com") == "Family"
+    cats = [{"categoryName": "Shared Calendar x@y", "categoryColor": "#2B45DE"},
+            {"categoryName": "Jack", "categoryColor": "#4DBAFD"}]
+    assert [p["name"] for p in dashboard.people(cats)] == ["Jack", "Family"]
+    ad = dashboard.normalize({"title": "Vote", "isAllDay": 1, "startDatetime": "2026-11-03 00:00:00",
+                              "endDatetime": "2026-11-03 23:59:59", "userCalendarCategorys": cats})
+    assert ad["allDay"] and ad["start"] == "2026-11-03" and ad["people"] == ["Jack", "Family"]
+    t = dashboard.normalize({"title": "Gym", "isAllDay": 0, "startDatetime": "2026-11-05 00:30:00",
+                             "endDatetime": "2026-11-05 01:25:00"})
+    assert t["start"].startswith("2026-11-04T18:30")  # UTC -> America/Chicago (CST)

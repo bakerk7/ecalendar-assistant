@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baker Family</title>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;color:#0f172a;display:flex;flex-direction:column;padding:1.25vw;gap:1vw;overflow:hidden;font-size:clamp(12px,1vw,22px);user-select:none}
+.top{flex:0 0 auto;min-height:5.7vw;background:#fff;border-radius:1.25vw;display:flex;align-items:center;padding:.6vw 1.9vw;gap:2vw;box-shadow:0 2px 8px #0001}
+.time{font-size:3.3vw;font-weight:700;font-variant-numeric:tabular-nums}.date{font-size:1.55vw;color:#475569}
+.wx{margin-left:auto;font-size:1.55vw;display:flex;gap:.7vw;align-items:center}.wx .ic{font-size:2.7vw}
+.main{flex:1;display:flex;gap:1vw;min-height:0}
+.cal{flex:1;min-width:0;background:#fff;border-radius:1.25vw;padding:1.25vw;display:flex;flex-direction:column;gap:.85vw;box-shadow:0 2px 8px #0001}
+.bar{display:flex;align-items:center;gap:.6vw}.bar h2{font-size:1.7vw;margin-right:auto;white-space:nowrap}
+.nav{font-size:1.5vw;background:#f1f5f9;border:0;border-radius:.6vw;width:2.6vw;height:2.6vw;cursor:pointer;color:#334155}
+.tg{display:flex;background:#e2e8f0;border-radius:.85vw;padding:.3vw}.tg button{border:0;background:none;padding:.6vw 1.2vw;font-size:1.15vw;border-radius:.6vw;font-weight:600;color:#0f172a;cursor:pointer}.tg .on{background:#fff;box-shadow:0 1px 4px #0002}
+.pfs{display:flex;gap:.4vw;flex-wrap:nowrap}.pf{display:flex;align-items:center;gap:.5vw;font-size:1.05vw;font-weight:600;background:#f8fafc;border-radius:2vw;padding:.3vw .8vw .3vw .3vw;white-space:nowrap;border:0;cursor:pointer;color:inherit}
+.pf i{width:2vw;height:2vw;border-radius:50%;color:#fff;font-style:normal;display:grid;place-items:center}.pf.off{opacity:.35}
+.grid{flex:1;display:grid;gap:.5vw;min-height:0}
+.week{grid-template-columns:repeat(7,minmax(0,1fr))}
+.day{background:#f8fafc;border-radius:.85vw;padding:.6vw;display:flex;flex-direction:column;gap:.5vw;min-height:0;overflow:hidden}
+.today{background:#eff6ff;outline:.16vw solid #3b82f6;outline-offset:-.16vw}
+.dh{display:flex;justify-content:space-between;align-items:baseline;font-size:1.05vw;color:#64748b;padding:.2vw}.dh strong{font-size:1.75vw;color:#0f172a}
+.evs{display:flex;flex-direction:column;gap:.5vw;overflow-y:auto;min-height:0;scrollbar-width:none}
+.ev{background:color-mix(in srgb,var(--c) 16%,white);border-left:.32vw solid var(--c);border-radius:.5vw;padding:.6vw;font-size:1vw;line-height:1.3;word-break:break-word}
+.ev.ad{background:var(--c);color:#fff;border-left-color:color-mix(in srgb,var(--c) 70%,black);font-weight:600;padding:.4vw .6vw}
+.ev .who{font-size:.8vw;opacity:.75;display:block}
+.month{grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(0,1fr)}
+.month .day{padding:.35vw;gap:.25vw}.month .dh strong{font-size:1.1vw}.month .dh{font-size:.8vw}.month .ev{font-size:.75vw;padding:.15vw .35vw;border-left-width:.25vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.month .ev .who{display:none}.month .other{opacity:.45}
+.wkh{display:grid;grid-template-columns:repeat(7,1fr);gap:.5vw;font-size:.9vw;color:#64748b;text-align:center;margin-bottom:-.3vw}
+.dayv{grid-template-columns:1fr}.dayv .ev{font-size:1.4vw;padding:.9vw}.dayv .dh strong{font-size:2vw}
+.empty{color:#94a3b8;font-size:.95vw;padding:.3vw}
+.side{width:23vw;display:flex;flex-direction:column;gap:.75vw;min-height:0}
+.side h3{font-size:1.25vw;display:flex;justify-content:space-between;align-items:baseline}.side h3 small{font-size:.85vw;color:#64748b;font-weight:400}
+.cam{flex:0 0 15.6vw;border-radius:1vw;position:relative;overflow:hidden;background:linear-gradient(135deg,#1e3a5f,#4b6b8a);cursor:pointer}
+.cam iframe,.cam video{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover}
+.cam .msg{position:absolute;inset:0;display:grid;place-items:center;color:#cbd5e1;font-size:1.1vw;text-align:center;padding:2vw}
+.live{position:absolute;top:.75vw;left:.75vw;background:#dc2626;color:#fff;font-weight:700;font-size:.85vw;padding:.3vw .6vw;border-radius:.4vw;z-index:2}.live.dim{background:#64748b}
+.cn{position:absolute;bottom:.75vw;left:.85vw;color:#fff;font-size:1.25vw;font-weight:600;z-index:2;text-shadow:0 1px 3px #0008}
+.cam.full{position:fixed;inset:0;z-index:50;border-radius:0;flex:none}
+.up{flex:1;background:#fff;border-radius:1.25vw;padding:1vw;display:flex;flex-direction:column;gap:.6vw;box-shadow:0 2px 8px #0001;min-height:0;overflow:hidden}
+.ag{display:flex;gap:.75vw;align-items:center;padding:.7vw;border-radius:.6vw;font-size:1.1vw;background:color-mix(in srgb,var(--c) 14%,white);border-left:.32vw solid var(--c)}.ag b{min-width:5.2vw;white-space:nowrap}.ag.past{opacity:.45}
+.foot{position:fixed;bottom:.3vw;right:1.6vw;font-size:.7vw;color:#94a3b8}.foot.err{color:#dc2626}
+</style></head><body>
+<div class="top"><div class="time" id="time">--:--</div><div class="date" id="date"></div>
+<div class="wx" id="wx"><span class="ic">·</span><span>Loading weather…</span></div></div>
+<div class="main">
+ <div class="cal">
+  <div class="bar"><button class="nav" id="prev">‹</button><h2 id="range"></h2><button class="nav" id="next">›</button>
+   <div class="pfs" id="pfs"></div>
+   <div class="tg" id="tg"><button data-v="day">Day</button><button data-v="week" class="on">Week</button><button data-v="month">Month</button></div></div>
+  <div id="wkh"></div>
+  <div class="grid week" id="grid"></div>
+ </div>
+ <div class="side">
+  <h3><span id="camtitle">Camera</span> <small>Tap = full screen</small></h3>
+  <div class="cam" id="cam"><span class="live dim" id="live">● LIVE</span><div class="msg" id="cammsg">Camera stream not connected yet</div><span class="cn" id="camname">Camera</span></div>
+  <div class="up"><h3>Up next · Today</h3><div id="agenda"></div></div>
+ </div>
+</div>
+<div class="foot" id="foot"></div>
+<script>
+const TZ='America/Chicago', REFRESH=5*60*1000;
+let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
+const $=id=>document.getElementById(id);
+function partsInTZ(d){const o={};new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(p=>o[p.type]=p.value);return o}
+function today(){const p=partsInTZ(new Date());return `${p.year}-${p.month}-${p.day}`}
+function nowHM(){const p=partsInTZ(new Date());return `${p.hour}:${p.minute}`}
+const D=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(Date.UTC(y,m-1,d))};
+const iso=d=>d.toISOString().slice(0,10);
+const add=(s,n)=>{const d=D(s);d.setUTCDate(d.getUTCDate()+n);return iso(d)};
+const dow=s=>D(s).getUTCDay();
+const fmt=(s,o)=>D(s).toLocaleDateString('en-US',{timeZone:'UTC',...o});
+function t12(hm,ampm){let [h,m]=hm.split(':').map(Number);const ap=h<12?'AM':'PM';h=h%12||12;return (m?`${h}:${String(m).padStart(2,'0')}`:`${h}:00`)+(ampm?' '+ap:ap[0].toLowerCase())}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function color(names){const p=cfg.people.find(p=>p.name===names[0]);return p?p.color:'#64748b'}
+
+function tick(){const d=new Date();
+ $('time').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});
+ $('date').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric',year:'numeric'});
+ const t=today(); if(t!==tick.last){if(tick.last&&anchor===tick.last)anchor=t;tick.last=t;render()}
+ if(d.getSeconds()===0)renderAgenda();}
+
+function rangeFor(){if(view==='day')return [anchor,anchor];
+ if(view==='week'){const s=add(anchor,-dow(anchor));return [s,add(s,6)]}
+ const f=anchor.slice(0,8)+'01',s=add(f,-dow(f));return [s,add(s,41)]}
+
+async function getJSON(u){const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));return r.json()}
+async function load(force){const [s,e]=rangeFor(),t=today();const want=[[s,e],[t,t]];
+ try{for(const [a,b] of want){const k=a+'|'+b;if(force||!cache[k])cache[k]=(await getJSON(`api/events?start=${a}&end=${b}`)).events}
+  lastOk=new Date();$('foot').className='foot';$('foot').textContent='Updated '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'})}
+ catch(err){$('foot').className='foot err';$('foot').textContent='Calendar unavailable ('+err.message+')'+(lastOk?' · showing data from '+lastOk.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'}):'')}
+ render()}
+
+function eventsOn(list,day){return list.filter(e=>!e.people.length||e.people.some(p=>!hidden.has(p))).filter(e=>e.allDay?(e.start<=day&&e.end>=day):e.start.slice(0,10)===day)}
+function evHTML(e){const c=color(e.people);const who=e.people.join(', ');
+ return e.allDay?`<div class="ev ad" style="--c:${c}">${esc(e.title)}<span class="who">${esc(who)}</span></div>`
+ :`<div class="ev" style="--c:${c}"><b>${t12(e.start.slice(11,16),view==='day')}</b> ${esc(e.title)}<span class="who">${esc(who)}</span></div>`}
+
+function render(){const [s,e]=rangeFor(),list=cache[s+'|'+e];const t=today(),g=$('grid');
+ g.className='grid '+(view==='day'?'dayv':view);
+ $('range').textContent=view==='day'?fmt(s,{weekday:'short',month:'short',day:'numeric'}):view==='week'?(fmt(s,{month:'short',day:'numeric'})+' – '+(s.slice(5,7)===e.slice(5,7)?fmt(e,{day:'numeric'}):fmt(e,{month:'short',day:'numeric'}))):fmt(anchor,{month:'long',year:'numeric'});
+ $('wkh').className=view==='month'?'wkh':'';$('wkh').innerHTML=view==='month'?['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div>${d}</div>`).join(''):'';
+ if(!list){g.innerHTML='<div class="empty">Loading…</div>';return}
+ const n=view==='day'?1:view==='week'?7:42;let h='';
+ for(let i=0;i<n;i++){const d=add(s,i),evs=eventsOn(list,d);const other=view==='month'&&d.slice(5,7)!==anchor.slice(5,7);
+  h+=`<div class="day${d===t?' today':''}${other?' other':''}"><div class="dh"><span>${fmt(d,{weekday:view==='day'?'long':'short'})}</span><strong>${fmt(d,{day:'numeric'})}</strong></div><div class="evs">${evs.map(evHTML).join('')||(view==='day'?'<div class="empty">Nothing scheduled</div>':'')}</div></div>`}
+ g.innerHTML=h;renderAgenda()}
+
+function renderAgenda(){const t=today(),list=cache[t+'|'+t];if(!list)return;const now=nowHM();
+ const evs=eventsOn(list,t);const ad=evs.filter(e=>e.allDay),timed=evs.filter(e=>!e.allDay).filter(e=>e.end.slice(0,10)>t||e.end.slice(11,16)>now);
+ $('agenda').style.cssText='display:flex;flex-direction:column;gap:.6vw';
+ $('agenda').innerHTML=ad.map(e=>`<div class="ag" style="--c:${color(e.people)}"><b>All day</b><span>${esc(e.title)}</span></div>`).join('')+
+  timed.map(e=>`<div class="ag" style="--c:${color(e.people)}"><b>${e.start.slice(11,16)<=now?'Now':t12(e.start.slice(11,16),true)}</b><span>${esc(e.title)}</span></div>`).join('')||'<div class="empty">Nothing else today 🎉</div>'}
+
+function renderPeople(){$('pfs').innerHTML=cfg.people.map(p=>`<button class="pf${hidden.has(p.name)?' off':''}" data-n="${esc(p.name)}"><i style="background:${p.color}">${esc(p.initial)}</i>${esc(p.name)}</button>`).join('')}
+$('pfs').onclick=e=>{const b=e.target.closest('.pf');if(!b)return;const n=b.dataset.n;hidden.has(n)?hidden.delete(n):hidden.add(n);renderPeople();render()};
+$('tg').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.v;[...$('tg').children].forEach(x=>x.classList.toggle('on',x===b));anchor=today();load()};
+$('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
+$('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
+
+function setupCamera(){const c=cfg.camera||{};$('camname').textContent=$('camtitle').textContent=c.name||'Camera';
+ if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url;f.allow='autoplay; fullscreen';f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
+$('cam').onclick=()=>$('cam').classList.toggle('full');
+
+const WMO={0:['☀️','Clear'],1:['🌤️','Mostly clear'],2:['⛅','Partly cloudy'],3:['☁️','Cloudy'],45:['🌫️','Fog'],48:['🌫️','Fog'],51:['🌦️','Drizzle'],53:['🌦️','Drizzle'],55:['🌦️','Drizzle'],56:['🌧️','Freezing drizzle'],57:['🌧️','Freezing drizzle'],61:['🌧️','Light rain'],63:['🌧️','Rain'],65:['🌧️','Heavy rain'],66:['🌧️','Freezing rain'],67:['🌧️','Freezing rain'],71:['🌨️','Light snow'],73:['🌨️','Snow'],75:['❄️','Heavy snow'],77:['🌨️','Snow grains'],80:['🌦️','Showers'],81:['🌦️','Showers'],82:['⛈️','Heavy showers'],85:['🌨️','Snow showers'],86:['🌨️','Snow showers'],95:['⛈️','Thunderstorm'],96:['⛈️','Thunderstorm'],99:['⛈️','Thunderstorm']};
+async function weather(){const w=cfg.weather||{lat:45.0725,lon:-93.4558};
+ try{const d=await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${w.lat}&longitude=${w.lon}&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=${encodeURIComponent(TZ)}&forecast_days=1`);
+  let [ic,txt]=WMO[d.current.weather_code]||['🌡️',''];if(!d.current.is_day&&d.current.weather_code<=1)ic='🌙';
+  $('wx').innerHTML=`<span class="ic">${ic}</span><b>${Math.round(d.current.temperature_2m)}°F</b> ${txt} · H ${Math.round(d.daily.temperature_2m_max[0])}° L ${Math.round(d.daily.temperature_2m_min[0])}°`}
+ catch(e){$('wx').innerHTML='<span class="ic">🌡️</span><span>Weather unavailable</span>'}}
+
+(async()=>{tick();setInterval(tick,1000);
+ try{cfg=await getJSON('api/config')}catch(e){$('foot').className='foot err';$('foot').textContent='Config unavailable'}
+ renderPeople();setupCamera();weather();await load();
+ setInterval(()=>{cache={};load(true)},REFRESH);setInterval(weather,15*60*1000);
+ setInterval(()=>location.reload(),6*3600*1000);})();
+</script></body></html>
