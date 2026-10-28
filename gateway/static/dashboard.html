@@ -196,7 +196,7 @@ button{font-family:inherit;color:inherit}
 const CAM_MODE='img-recycle';
 const CAM_SRC='doorbell_mjpeg';            // go2rtc source (480-640w transcode)
 const CAM_FRAME_MS=220;                    // canvas-frames: delay between frames (~4-5 fps)
-const CAM_RECYCLE_MS=60000;                // img-recycle: tear down + recreate the <img> this often
+const CAM_RECYCLE_MS=30000;                // img-recycle: tear down + recreate the <img> this often
 const CAM_RETRY_MS=5000;                   // reconnect delay after an error
 const CAM_FRAME_URL='http://{host}:1984/api/frame.jpeg?src='+CAM_SRC;
 const CAM_MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src='+CAM_SRC;
