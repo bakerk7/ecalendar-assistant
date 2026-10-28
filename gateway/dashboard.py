@@ -6,15 +6,21 @@ routes, which call the eCalendar session server-side. LAN/tailnet only.
 Env:
   DASHBOARD_ENABLED        default 1
   DASHBOARD_CAMERA_URL     go2rtc embed URL (e.g. http://host:1984/stream.html?src=door&mode=webrtc,mse)
+                           '{host}' is replaced client-side with the page's hostname
   DASHBOARD_CAMERA_NAME    default "Camera"
+  DASHBOARD_DOORBELL_SECRET  shared secret for POST /dashboard/api/doorbell/ring
+                           (header X-Doorbell-Secret); ring endpoint is disabled if unset
   DASHBOARD_LAT/LON/PLACE  weather location (default Maple Grove, MN)
 """
 from __future__ import annotations
 
+import hmac
 import os
+from typing import Optional
+from datetime import datetime, timezone
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 
 import ecal
@@ -108,5 +114,31 @@ def make_router(run, cache, parse_day) -> APIRouter:
                 out.append(ev)
         out.sort(key=lambda x: (x["start"][:10], not x["allDay"], x["start"]))
         return {"start": s.isoformat(), "end": e.isoformat(), "events": out}
+
+    ring = {"last_ring": None, "source": None}
+
+    def _ok(given, secret):
+        return bool(secret) and bool(given) and hmac.compare_digest(given, secret)
+
+    def _mark(source):
+        ring["last_ring"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        ring["source"] = source
+        return dict(ring)
+
+    @r.get("/dashboard/api/doorbell")
+    def doorbell():
+        return {**ring, "now": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+    @r.post("/dashboard/api/doorbell/ring")
+    def doorbell_ring(x_doorbell_secret: Optional[str] = Header(default=None)):
+        if not _ok(x_doorbell_secret, os.environ.get("DASHBOARD_DOORBELL_SECRET", "")):
+            raise HTTPException(401, "bad or missing X-Doorbell-Secret")
+        return _mark("ring")
+
+    @r.post("/dashboard/api/doorbell/test")
+    def doorbell_test(x_api_key: Optional[str] = Header(default=None)):
+        if not _ok(x_api_key, os.environ.get("GATEWAY_API_KEY", "")):
+            raise HTTPException(401, "bad or missing X-API-Key")
+        return _mark("test")
 
     return r

@@ -32,12 +32,17 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 .empty{color:#94a3b8;font-size:.95vw;padding:.3vw}
 .side{width:23vw;display:flex;flex-direction:column;gap:.75vw;min-height:0}
 .side h3{font-size:1.25vw;display:flex;justify-content:space-between;align-items:baseline}.side h3 small{font-size:.85vw;color:#64748b;font-weight:400}
-.cam{flex:0 0 15.6vw;border-radius:1vw;position:relative;overflow:hidden;background:linear-gradient(135deg,#1e3a5f,#4b6b8a);cursor:pointer}
-.cam iframe,.cam video{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover}
-.cam .msg{position:absolute;inset:0;display:grid;place-items:center;color:#cbd5e1;font-size:1.1vw;text-align:center;padding:2vw}
-.live{position:absolute;top:.75vw;left:.75vw;background:#dc2626;color:#fff;font-weight:700;font-size:.85vw;padding:.3vw .6vw;border-radius:.4vw;z-index:2}.live.dim{background:#64748b}
-.cn{position:absolute;bottom:.75vw;left:.85vw;color:#fff;font-size:1.25vw;font-weight:600;z-index:2;text-shadow:0 1px 3px #0008}
-.cam.full{position:fixed;inset:0;z-index:50;border-radius:0;flex:none}
+.camchip{display:flex;align-items:center;gap:.8vw;background:#0f172a;color:#fff;border-radius:1vw;padding:.5vw;cursor:pointer;box-shadow:0 2px 8px #0002}
+.camchip img{width:5.6vw;height:4.2vw;object-fit:cover;border-radius:.6vw;background:#1e293b;display:block}
+.camchip b{font-size:1.2vw;display:block}.camchip small{font-size:.8vw;color:#94a3b8}
+.camchip .dot{width:.7vw;height:.7vw;border-radius:50%;background:#64748b;margin-left:auto;margin-right:.6vw}.camchip.ok .dot{background:#22c55e}
+.ov{position:fixed;inset:0;z-index:50;background:#000d;display:none;align-items:center;justify-content:center;flex-direction:column;gap:1vw}
+.ov.on{display:flex}
+.ov .box{position:relative;width:min(92vw,150vh);height:82vh;background:#000;border-radius:1vw;overflow:hidden}
+.ov iframe{position:absolute;inset:0;width:100%;height:100%;border:0;overflow:hidden;display:block;background:#000}
+.ov .lbl{color:#fff;font-size:2.6vw;font-weight:700;text-shadow:0 2px 6px #000}
+.ov .live{position:absolute;top:1vw;left:1vw;background:#dc2626;color:#fff;font-weight:700;font-size:1vw;padding:.3vw .6vw;border-radius:.4vw;z-index:2}
+.ov .hint{color:#cbd5e1;font-size:1vw}
 .up{flex:1;background:#fff;border-radius:1.25vw;padding:1vw;display:flex;flex-direction:column;gap:.6vw;box-shadow:0 2px 8px #0001;min-height:0;overflow:hidden}
 .ag{display:flex;gap:.75vw;align-items:center;padding:.7vw;border-radius:.6vw;font-size:1.1vw;background:color-mix(in srgb,var(--c) 14%,white);border-left:.32vw solid var(--c)}.ag b{min-width:5.2vw;white-space:nowrap}.ag.past{opacity:.45}
 .foot{position:fixed;bottom:.3vw;right:1.6vw;font-size:.7vw;color:#94a3b8}.foot.err{color:#dc2626}
@@ -53,12 +58,12 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
   <div class="grid week" id="grid"></div>
  </div>
  <div class="side">
-  <h3><span id="camtitle">Camera</span> <small>Tap = full screen</small></h3>
-  <div class="cam" id="cam"><span class="live dim" id="live">● LIVE</span><div class="msg" id="cammsg">Camera stream not connected yet</div><span class="cn" id="camname">Camera</span></div>
+  <div class="camchip" id="camchip"><img id="camimg" alt=""><div><b id="camname">Camera</b><small id="camsub">Tap to view live</small></div><span class="dot"></span></div>
   <div class="up"><h3>Up next · Today</h3><div id="agenda"></div></div>
  </div>
 </div>
 <div class="foot" id="foot"></div>
+<div class="ov" id="ov"><div class="lbl" id="ovlbl">Someone's at the front door</div><div class="box" id="ovbox"><span class="live">● LIVE</span></div><div class="hint">Tap anywhere to close</div></div>
 <script>
 const TZ='America/Chicago', REFRESH=5*60*1000;
 let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
@@ -119,9 +124,27 @@ $('tg').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.datas
 $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
 
-function setupCamera(){const c=cfg.camera||{};$('camname').textContent=$('camtitle').textContent=c.name||'Camera';
- if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url;f.allow='autoplay; fullscreen';f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
-$('cam').onclick=()=>$('cam').classList.toggle('full');
+let ovTimer=null,seenRing=undefined;
+const camHost=u=>(u||'').replace('{host}',location.hostname);
+function snapUrl(){const c=cfg.camera||{};if(c.snapshot)return camHost(c.snapshot);
+ try{const u=new URL(camHost(c.url));return `${u.origin}/api/frame.jpeg?src=${u.searchParams.get('src')||'doorbell'}`}catch(e){return ''}}
+function refreshSnap(){const s=snapUrl();if(!s)return;const im=new Image();
+ im.onload=()=>{$('camimg').src=im.src;$('camchip').classList.add('ok')};im.onerror=()=>$('camchip').classList.remove('ok');im.src=s+'&t='+Date.now()}
+function openCam(ring){const c=cfg.camera||{};if(!c.url)return;
+ $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
+ if(!$('ovbox').querySelector('iframe')){const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay; fullscreen';
+  f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.style.pointerEvents='none';$('ovbox').prepend(f)}
+ $('ov').classList.add('on');clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
+function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f)f.remove()}
+function setupCamera(){const c=cfg.camera||{};$('camname').textContent=c.name||'Camera';
+ if(!c.url){$('camsub').textContent='Camera not connected';return}
+ refreshSnap();setInterval(refreshSnap,15000);
+ if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring
+$('camchip').onclick=()=>openCam(false);$('ov').onclick=closeCam;
+async function pollRing(){try{const d=await getJSON('api/doorbell');
+  if(seenRing===undefined)seenRing=d.last_ring;
+  else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;openCam(true)}}catch(e){}}
+setInterval(pollRing,2000);
 
 const WMO={0:['☀️','Clear'],1:['🌤️','Mostly clear'],2:['⛅','Partly cloudy'],3:['☁️','Cloudy'],45:['🌫️','Fog'],48:['🌫️','Fog'],51:['🌦️','Drizzle'],53:['🌦️','Drizzle'],55:['🌦️','Drizzle'],56:['🌧️','Freezing drizzle'],57:['🌧️','Freezing drizzle'],61:['🌧️','Light rain'],63:['🌧️','Rain'],65:['🌧️','Heavy rain'],66:['🌧️','Freezing rain'],67:['🌧️','Freezing rain'],71:['🌨️','Light snow'],73:['🌨️','Snow'],75:['❄️','Heavy snow'],77:['🌨️','Snow grains'],80:['🌦️','Showers'],81:['🌦️','Showers'],82:['⛈️','Heavy showers'],85:['🌨️','Snow showers'],86:['🌨️','Snow showers'],95:['⛈️','Thunderstorm'],96:['⛈️','Thunderstorm'],99:['⛈️','Thunderstorm']};
 async function weather(){const w=cfg.weather||{lat:45.0725,lon:-93.4558};
