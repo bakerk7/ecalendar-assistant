@@ -210,8 +210,15 @@ def make_router(run, cache, parse_day, run_token=None) -> APIRouter:
     def index_redirect():
         return RedirectResponse("/dashboard/")
 
+    # The kiosk APK loads /dashboard/ (hardcoded URL, no intent extras), so this now
+    # serves the 10 s doorbell popup. The old full dashboard stays at /dashboard/full.
     @r.get("/dashboard/")
     def index():
+        return FileResponse(os.path.join(STATIC, "doorbell.html"),
+                            headers={"Cache-Control": "no-cache"})
+
+    @r.get("/dashboard/full")
+    def full_dashboard():
         return FileResponse(os.path.join(STATIC, "dashboard.html"),
                             headers={"Cache-Control": "no-cache"})
 

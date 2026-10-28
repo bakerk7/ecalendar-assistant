@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Front door</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:contain}
+#lbl{position:fixed;top:24px;left:32px;color:#fff;font:600 44px sans-serif;text-shadow:0 2px 8px #000;background:rgba(0,0,0,.45);padding:8px 22px;border-radius:14px}
+#t{position:fixed;top:30px;right:36px;color:#fff;font:600 36px sans-serif;background:rgba(0,0,0,.45);padding:6px 18px;border-radius:12px}</style></head>
+<body><img id="cam" alt=""><div id="lbl">Front door</div><div id="t"></div>
+<script>
+var SECS=10,img=document.getElementById('cam'),done=false,left=SECS;
+img.src='http://'+location.hostname+':1984/api/stream.mjpeg?src=doorbell_mjpeg';
+function close(){if(done)return;done=true;
+ try{img.src='data:image/gif;base64,R0lGODlhAQABAAAAACw=';img.removeAttribute('src');img.parentNode.removeChild(img);img=null;}catch(e){}
+ setTimeout(function(){try{KioskApp.exit()}catch(e){location.href='about:blank'}},150);}
+function tick(){document.getElementById('t').textContent=left+'s';if(left--<=0)close();else setTimeout(tick,1000);}
+// count 10 s from the first frame (camera cold start ~5 s); hard cap 25 s total
+var started=false;document.getElementById('t').textContent='Connecting…';
+function start(){if(!started){started=true;tick();}}
+img.onload=start;setTimeout(start,15000);setTimeout(close,25000);
+document.body.addEventListener('click',close);
+</script></body></html>
