@@ -206,3 +206,22 @@ def test_dashboard_normalize_and_names():
     t = dashboard.normalize({"title": "Gym", "isAllDay": 0, "startDatetime": "2026-11-05 00:30:00",
                              "endDatetime": "2026-11-05 01:25:00"})
     assert t["start"].startswith("2026-11-04T18:30")  # UTC -> America/Chicago (CST)
+
+
+def test_dashboard_parse_forecast():
+    from gateway.dashboard import parse_forecast, wx_icon
+    days = parse_forecast([
+        {"startTime": "2026-10-27T18:00:00-05:00", "isDaytime": False, "temperature": 49, "shortForecast": "Cloudy"},
+        {"startTime": "2026-10-28T06:00:00-05:00", "isDaytime": True, "temperature": 68, "shortForecast": "Partly Sunny"},
+        {"startTime": "2026-10-28T18:00:00-05:00", "isDaytime": False, "temperature": 43, "shortForecast": "Rain"}])
+    assert days[0] == {"date": "2026-10-27", "hi": None, "lo": 49, "icon": "☁️", "text": "Cloudy"}
+    assert days[1]["hi"] == 68 and days[1]["lo"] == 43 and days[1]["icon"] == "⛅"
+    assert wx_icon("Chance Light Snow") == "🌨️"
+
+
+def test_dashboard_ha_chip_levels():
+    from gateway.dashboard import ha_chip
+    assert ha_chip({"entity_id": "cover.garage", "state": "open", "attributes": {"friendly_name": "Garage"}})["level"] == "warn"
+    assert ha_chip({"entity_id": "lock.front", "state": "locked", "attributes": {}})["level"] == "ok"
+    c = ha_chip({"entity_id": "person.kyle_baker", "state": "not_home", "attributes": {"friendly_name": "Kyle Baker"}})
+    assert c["name"] == "Kyle" and c["label"] == "Away"
