@@ -33,7 +33,8 @@ body{font-family:Inter,Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;colo
 .side{width:23vw;display:flex;flex-direction:column;gap:.75vw;min-height:0}
 .side h3{font-size:1.25vw;display:flex;justify-content:space-between;align-items:baseline}.side h3 small{font-size:.85vw;color:#64748b;font-weight:400}
 .cam{flex:0 0 15.6vw;border-radius:1vw;position:relative;overflow:hidden;background:linear-gradient(135deg,#1e3a5f,#4b6b8a);cursor:pointer}
-.cam iframe,.cam video{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover}
+.cam iframe,.cam video{position:absolute;inset:0;width:100%;height:100%;border:0;overflow:hidden;display:block;object-fit:contain;object-position:center;background:#000}
+.cam.has-stream{background:#000}
 .cam .msg{position:absolute;inset:0;display:grid;place-items:center;color:#cbd5e1;font-size:1.1vw;text-align:center;padding:2vw}
 .live{position:absolute;top:.75vw;left:.75vw;background:#dc2626;color:#fff;font-weight:700;font-size:.85vw;padding:.3vw .6vw;border-radius:.4vw;z-index:2}.live.dim{background:#64748b}
 .cn{position:absolute;bottom:.75vw;left:.85vw;color:#fff;font-size:1.25vw;font-weight:600;z-index:2;text-shadow:0 1px 3px #0008}
@@ -120,7 +121,7 @@ $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anch
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
 
 function setupCamera(){const c=cfg.camera||{};$('camname').textContent=$('camtitle').textContent=c.name||'Camera';
- if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url.replace('{host}',location.hostname);f.allow='autoplay; fullscreen';f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
+ if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url.replace('{host}',location.hostname);f.allow='autoplay; fullscreen';f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');$('cam').classList.add('has-stream');f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
 $('cam').onclick=()=>$('cam').classList.toggle('full');
 
 const WMO={0:['☀️','Clear'],1:['🌤️','Mostly clear'],2:['⛅','Partly cloudy'],3:['☁️','Cloudy'],45:['🌫️','Fog'],48:['🌫️','Fog'],51:['🌦️','Drizzle'],53:['🌦️','Drizzle'],55:['🌦️','Drizzle'],56:['🌧️','Freezing drizzle'],57:['🌧️','Freezing drizzle'],61:['🌧️','Light rain'],63:['🌧️','Rain'],65:['🌧️','Heavy rain'],66:['🌧️','Freezing rain'],67:['🌧️','Freezing rain'],71:['🌨️','Light snow'],73:['🌨️','Snow'],75:['❄️','Heavy snow'],77:['🌨️','Snow grains'],80:['🌦️','Showers'],81:['🌦️','Showers'],82:['⛈️','Heavy showers'],85:['🌨️','Snow showers'],86:['🌨️','Snow showers'],95:['⛈️','Thunderstorm'],96:['⛈️','Thunderstorm'],99:['⛈️','Thunderstorm']};
