@@ -120,7 +120,7 @@ $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anch
 $('next').onclick=()=>{anchor=view==='day'?add(anchor,1):view==='week'?add(anchor,7):add(add(anchor.slice(0,8)+'01',32).slice(0,8)+'01',0);load()};
 
 function setupCamera(){const c=cfg.camera||{};$('camname').textContent=$('camtitle').textContent=c.name||'Camera';
- if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url;f.allow='autoplay; fullscreen';f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
+ if(c.url){$('cammsg').remove();const f=document.createElement('iframe');f.src=c.url.replace('{host}',location.hostname);f.allow='autoplay; fullscreen';f.style.pointerEvents='none';$('cam').prepend(f);$('live').classList.remove('dim')}}
 $('cam').onclick=()=>$('cam').classList.toggle('full');
 
 const WMO={0:['☀️','Clear'],1:['🌤️','Mostly clear'],2:['⛅','Partly cloudy'],3:['☁️','Cloudy'],45:['🌫️','Fog'],48:['🌫️','Fog'],51:['🌦️','Drizzle'],53:['🌦️','Drizzle'],55:['🌦️','Drizzle'],56:['🌧️','Freezing drizzle'],57:['🌧️','Freezing drizzle'],61:['🌧️','Light rain'],63:['🌧️','Rain'],65:['🌧️','Heavy rain'],66:['🌧️','Freezing rain'],67:['🌧️','Freezing rain'],71:['🌨️','Light snow'],73:['🌨️','Snow'],75:['❄️','Heavy snow'],77:['🌨️','Snow grains'],80:['🌦️','Showers'],81:['🌦️','Showers'],82:['⛈️','Heavy showers'],85:['🌨️','Snow showers'],86:['🌨️','Snow showers'],95:['⛈️','Thunderstorm'],96:['⛈️','Thunderstorm'],99:['⛈️','Thunderstorm']};

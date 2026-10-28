@@ -6,6 +6,7 @@ routes, which call the eCalendar session server-side. LAN/tailnet only.
 Env:
   DASHBOARD_ENABLED        default 1
   DASHBOARD_CAMERA_URL     go2rtc embed URL (e.g. http://host:1984/stream.html?src=door&mode=webrtc,mse)
+                           '{host}' is replaced client-side with the page's hostname
   DASHBOARD_CAMERA_NAME    default "Camera"
   DASHBOARD_LAT/LON/PLACE  weather location (default Maple Grove, MN)
 """
