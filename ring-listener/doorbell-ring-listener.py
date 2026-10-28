@@ -2,9 +2,9 @@
 """Doorbell ring -> 10 s camera popup on the Dragon Touch eCalendar.
 
 Polls HA (read-only GET /api/states/<entity>) every 1 s. When the event entity's
-state (ISO timestamp of last ring) changes, launches the kiosk app, which loads the
-doorbell popup page; the page calls KioskApp.exit() after 10 s, returning to
-com.fujia.calendar. Disable: touch ~/.doorbell-popup/DISABLED
+state (ISO timestamp of last ring) changes, sends an explicit broadcast to com.bakerk7.doorbelloverlay/.RingReceiver (full-screen
+overlay window over the calendar, no Activity);
+falls back to launching the kiosk Activity if that fails. Disable: touch ~/.doorbell-popup/DISABLED
 """
 import json, os, subprocess, time, urllib.request, logging
 
@@ -17,7 +17,8 @@ ADB = os.path.join(HOME, "platform-tools/adb")
 DEV = os.environ.get("ECAL_DEVICE", "192.0.2.20:5555")
 ENTITY = os.environ.get("DOORBELL_ENTITY", "event.doorbell_doorbell")
 HA = os.environ.get("HA_URL", "http://192.0.2.10:8123")
-COMPONENT = "com.bakerk7.familydashboard/.MainActivity"
+COMPONENT = "com.bakerk7.familydashboard/.MainActivity"          # fallback (launches an Activity)
+OVERLAY = "com.bakerk7.doorbelloverlay/.RingReceiver"              # primary: overlay window, no Activity
 COOLDOWN = 12
 
 def token():
@@ -39,9 +40,20 @@ def popup():
         try:
             if attempt:  # fast path: device is normally already connected
                 subprocess.run([ADB, "connect", DEV], capture_output=True, timeout=10)
+            r = adb("shell", "am", "broadcast", "-f", "0x20", "-n", OVERLAY)
+            if r.returncode == 0 and "Broadcast completed" in r.stdout:
+                logging.info("overlay broadcast sent (attempt %d)", attempt + 1)
+                for _ in range(6):  # confirm the overlay window exists, else fall back
+                    time.sleep(0.5)
+                    w = adb("shell", "dumpsys window windows | grep -c DoorbellOverlay", timeout=8)
+                    if w.stdout.strip() not in ("", "0"):
+                        logging.info("overlay window confirmed"); return
+                logging.warning("overlay window not seen")
+            else:
+                logging.warning("overlay broadcast failed: %s %s", r.stdout.strip(), r.stderr.strip())
             r = adb("shell", "am", "start", "-n", COMPONENT)
             if r.returncode == 0 and "Error" not in r.stdout + r.stderr:
-                logging.info("popup launched (attempt %d)", attempt + 1); return
+                logging.info("FALLBACK activity popup launched (attempt %d)", attempt + 1); return
             logging.warning("am start failed: %s %s", r.stdout.strip(), r.stderr.strip())
         except Exception as e:
             logging.warning("adb error: %s", e)
