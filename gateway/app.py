@@ -267,6 +267,10 @@ def create_app(session: Optional[Session] = None, cache_ttl: Optional[float] = N
         b["eventId"] = event_id
         return write("/app/event/delete/selective", b)
 
+    if os.environ.get("DASHBOARD_ENABLED", "1") != "0":
+        from gateway.dashboard import make_router
+        app.include_router(make_router(run, cache, _parse_day))
+
     @app.post("/cache/clear", dependencies=[Depends(auth)])
     def clear_cache():
         cache.clear()

@@ -375,3 +375,13 @@ Run without Docker: `pip install -r gateway/requirements.txt && python -m gatewa
 - **Sync scripts:** stop using your own token/login — call the gateway over HTTP
   (`requests.post("http://bakerserver:8080/events", json=body, headers={"X-API-Key": KEY})`),
   so only the gateway ever holds the session.
+
+## Wall dashboard (`/dashboard/`)
+
+The gateway also serves a read-only family wall dashboard at `http://<server>:<port>/dashboard/`
+(week/day/month views, profile chips, clock, Open-Meteo weather, camera tile, "Up next").
+The browser only calls `/dashboard/api/config` and `/dashboard/api/events?start=&end=`, which are
+read-only and need no API key (the key never reaches the browser) — keep the port LAN/tailnet-only.
+Env: `DASHBOARD_ENABLED=0` to turn off; `DASHBOARD_CAMERA_URL` (e.g. a go2rtc
+`http://host:1984/stream.html?src=door&mode=webrtc,mse` URL) and `DASHBOARD_CAMERA_NAME`;
+`DASHBOARD_LAT`/`DASHBOARD_LON`/`DASHBOARD_PLACE` (default Maple Grove, MN).
