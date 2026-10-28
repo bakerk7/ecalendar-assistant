@@ -202,7 +202,7 @@ const CAM_FRAME_URL='http://{host}:1984/api/frame.jpeg?src='+CAM_SRC;
 const CAM_MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src='+CAM_SRC;
 // ==============================================================================================
 const TZ='America/Chicago', REFRESH=5*60*1000;
-let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
+let cfg={people:[],camera:{}}, view=(function(){try{var v=sessionStorage.getItem('dashView');return /^(day|week|month)$/.test(v)?v:'week'}catch(e){return 'week'}})(), anchor=today(), cache={}, hidden=new Set(), lastOk=null;
 const $=id=>document.getElementById(id);
 function partsInTZ(d){const o={};new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(p=>o[p.type]=p.value);
  // Chromium 74 (V8 7.4) ignores hourCycle and returns 12h hour + dayPeriod; normalize to 00-23
@@ -286,7 +286,7 @@ function toggleP(n){hidden.has(n)?hidden.delete(n):hidden.add(n);renderPeople();
 $('pfs').onclick=e=>{e.stopPropagation();const b=e.target.closest('.pf');if(b)toggleP(b.dataset.n)};
 $('mem').onclick=e=>{const b=e.target.closest('.mc');if(b)toggleP(b.dataset.n)};
 $('fltb').onclick=()=>$('pfs').classList.toggle('on');
-function setView(v){view=v;anchor=today();load()}
+function setView(v){view=v;try{sessionStorage.setItem('dashView',v)}catch(e){}anchor=today();load()}
 $('vsel').onchange=()=>setView($('vsel').value);
 $('prev').onclick=()=>{anchor=view==='day'?add(anchor,-1):view==='week'?add(anchor,-7):add(anchor.slice(0,8)+'01',-1);load()};
 $('todayb').onclick=$('range').onclick=()=>{anchor=today();load()};
@@ -394,8 +394,14 @@ document.addEventListener('visibilitychange',function(){camSync(true)});
 $('camt').onclick=e=>{if(e.target.closest('#nwb')){e.stopPropagation();anchor=add(anchor,7);load();return}openCam(false)};
 async function pollRing(){try{const d=await getJSON('api/doorbell');
   if(seenRing===undefined)seenRing=d.last_ring;
-  else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;openCam(true)}}catch(e){}}
+  else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;lastRingAt=Date.now();openCam(true)}}catch(e){}}
 setInterval(pollRing,2000);
+// Chromium 74 WebView memory cap: quiet full reload every 20 min (camera <img> growth is only freed by a reload).
+// Deferred while the overlay is open or within 60s of a ring; only reloads after the server answers (no error page).
+let lastRingAt=0,reloadDue=Date.now()+20*60000;
+setInterval(function(){if(Date.now()<reloadDue||$('ov').classList.contains('on')||Date.now()-lastRingAt<60000)return;
+ reloadDue=Date.now()+60000; // retry in 1 min if the check below fails
+ fetch(location.href.split('#')[0],{cache:'no-store'}).then(function(r){if(r.ok)location.reload()}).catch(function(){})},15000);
 
 let wxDays={};
 function dayWx(d){const w=wxDays[d];if(!w)return '';const hl=[w.hi,w.lo].filter(x=>x!==null&&x!==undefined).map(x=>x+'°').join(' / ');return `<span class="dw">${w.icon||''} ${hl}</span>`}
