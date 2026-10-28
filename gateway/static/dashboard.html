@@ -118,8 +118,17 @@ button{font-family:inherit;color:inherit}
 .ev .nxb{font-style:normal;font-size:.5vw;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.03vw;margin-right:.3vw}
 .ev.nx{border:1px solid #93b4f5}
 .noev{margin:auto;font-size:.68vw;color:#9ca3af}
-.day.nxw{cursor:pointer}.day.nxw .dh .dn{font-weight:500}
-.day.nxw .noev{color:#6b7280}
+.camt{padding:0;overflow:hidden;background:#1f2937;cursor:pointer}
+.camt .cfeed,.ov .cfeed{position:absolute;top:0;left:0;width:100%;height:100%}
+.cfeed canvas,.cfeed img{display:block;width:100%;height:100%;object-fit:cover;background:#111827}
+.ov .cfeed canvas,.ov .cfeed img{object-fit:contain;background:#000}
+.camt .cph{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cbd5e1;font-size:.72vw;text-align:center}
+.camt .cph span{font-size:1.6vw;margin-bottom:.3vw}
+.camt.ok .cph{display:none}
+.camt .clb{position:absolute;left:.5vw;top:.45vw;display:flex;align-items:center;background:rgba(255,255,255,.92);border-radius:1vw;padding:.15vw .5vw;font-size:.68vw;font-weight:600;color:#111827}
+.camt .lv{background:#dc2626;color:#fff;border-radius:1vw;font-size:.52vw;font-weight:700;padding:.08vw .35vw;margin-left:.4vw;letter-spacing:.03vw}
+.camt:not(.ok) .lv{background:#9ca3af}
+.camt .nwb{position:absolute;left:.5vw;bottom:.45vw;border:0;background:rgba(255,255,255,.92);border-radius:1vw;padding:.25vw .6vw;font-size:.66vw;font-weight:600;color:#1d4ed8;cursor:pointer}
 .more::after{content:'more…';position:absolute;right:.5vw;bottom:.1vw;font-size:.56vw;color:#6b7280;background:#fff;padding:0 .2vw}
 .month .day{padding:.2vw .3vw}.month .dh{height:1.2vw;margin-bottom:.1vw}.month .dh .dn{font-size:.7vw}
 .month .ev{min-height:0;padding:.08vw .3vw .08vw .5vw;margin-bottom:.12vw;border-radius:.25vw}.month .ev .sb,.month .ev .av,.month .ev .ck{display:none}.month .ev .tl{font-size:.58vw}
@@ -165,7 +174,7 @@ button{font-family:inherit;color:inherit}
 </div>
 <button class="fab" id="addb" title="Add">+</button>
 <div class="drw" id="chp"><h3><span id="chh">Chores · Today</span><small id="chmsg">tap to check off</small><button class="x" id="chx">×</button></h3><div class="kids" id="kids"><div class="empty">Loading…</div></div></div>
-<div class="hide"><div id="agenda"></div><button id="todayb"></button></div>
+<div class="hide" id="camt0"><div class="day camt" id="camt"><div class="cfeed" id="camtf"></div><div class="cph"><span>📷</span><b id="camtx">Connecting to front door…</b></div><div class="clb">Front door<em class="lv">LIVE</em></div><button class="nwb" id="nwb">Next week ›</button></div><div id="agenda"></div><button id="todayb"></button></div>
 <div id="night"><div class="nt" id="ntime"></div><div class="nd" id="ndate"></div><div class="nh">Tap to wake</div></div>
 <div class="ov" id="ov"><div class="lbl" id="ovlbl">Someone's at the front door</div><div class="box" id="ovbox"><span class="live">● LIVE</span></div><div class="hint">Tap anywhere to close</div></div>
 <div id="am"><div class="amb">
@@ -180,6 +189,18 @@ button{font-family:inherit;color:inherit}
  <div class="amf"><span class="msg" id="aMsg"></span><button class="btn sec" id="aCancel">Cancel</button><button class="btn pri" id="aSave">Add event</button></div>
 </div></div>
 <script>
+// ===== CAMERA CONFIG (Boone: flip these) =====================================================
+// CAM_MODE 'canvas-frames': ONE reused <canvas>, draws frame.jpeg snapshots every CAM_FRAME_MS via ONE reused Image
+//          (no overlapping requests). Default: avoids Chromium 74's MJPEG <img> GPU-memory leak.
+// CAM_MODE 'img-recycle'  : MJPEG <img> (stream.mjpeg), fully removed + recreated every CAM_RECYCLE_MS.
+const CAM_MODE='canvas-frames';
+const CAM_SRC='doorbell_mjpeg';            // go2rtc source (480-640w transcode)
+const CAM_FRAME_MS=220;                    // canvas-frames: delay between frames (~4-5 fps)
+const CAM_RECYCLE_MS=60000;                // img-recycle: tear down + recreate the <img> this often
+const CAM_RETRY_MS=5000;                   // reconnect delay after an error
+const CAM_FRAME_URL='http://{host}:1984/api/frame.jpeg?src='+CAM_SRC;
+const CAM_MJPEG_URL='http://{host}:1984/api/stream.mjpeg?src='+CAM_SRC;
+// ==============================================================================================
 const TZ='America/Chicago', REFRESH=5*60*1000;
 let cfg={people:[],camera:{}}, view='week', anchor=today(), cache={}, hidden=new Set(), lastOk=null;
 const $=id=>document.getElementById(id);
@@ -244,13 +265,12 @@ function render(){const [s,e]=rangeFor(),list=cache[s+'|'+e];const t=today(),g=$
   const lbl=view==='month'?`<span class="dn"><b>${fmt(d,{day:'numeric'})}</b></span>`:`<span class="dn">${fmt(d,{weekday:view==='day'?'long':'short'})}<b>${fmt(d,{day:'2-digit'})}</b></span>`;
   const ac=view==='month'?'':`<button class="ac" data-d="${d}">${evs.length?evs.length+(evs.length===1?' event':' events'):'Add Event'}<em>+</em></button>`;
   h+=`<div class="day${d===t?' today':''}${other?' other':''}"><div class="dh">${lbl}${view==='day'?dayWx(d):''}${ac}</div><div class="evs">${dayBody(d,evs,t)}</div></div>`}
- if(view==='week'){const ns=add(s,7);h+=`<div class="day nxw" id="nxw"><div class="dh"><span class="dn">Next Week</span></div><div class="evs"><div class="noev">${fmt(ns,{month:'short',day:'2-digit'})}-${fmt(add(ns,6),{month:'short',day:'2-digit'})}</div></div></div>`}
- g.innerHTML=h;
+ if(view!=='week'){$('camt0').appendChild($('camt'))}else if($('camt').parentNode===g){$('camt0').appendChild($('camt'))}
+ g.innerHTML=h;if(view==='week'){const ns=add(s,7);$('nwb').textContent='Next week ›';$('nwb').title=fmt(ns,{month:'short',day:'2-digit'})+'-'+fmt(add(ns,6),{month:'short',day:'2-digit'});g.appendChild($('camt'))}camSync();
  g.querySelectorAll('.day').forEach(d=>{const v=d.querySelector('.evs');if(v&&v.scrollHeight>v.clientHeight+2)d.classList.add('more')});
  renderMembers();renderAgenda()}
 $('grid').onclick=e=>{const ck=e.target.closest('.ck');if(ck){const ev=ck.closest('.ev'),k=ev.dataset.k;if(doneSet[k])delete doneSet[k];else doneSet[k]=1;try{localStorage.setItem('evdone',JSON.stringify(doneSet))}catch(x){}render();return}
  const ac=e.target.closest('.ac');if(ac){addOpen();addDay=ac.dataset.d;addRender();return}
- if(e.target.closest('#nxw')){anchor=add(anchor,7);load();return}
  const dy=e.target.closest('.day');if(dy&&view==='month'){const b=dy.querySelector('.ac');}};
 function renderAgenda(){const t=today(),list=cache[t+'|'+t];if(!list)return;const now=nowHM();
  const evs=eventsOn(list,t);const ad=evs.filter(e=>e.allDay),timed=evs.filter(e=>!e.allDay).filter(e=>e.end.slice(0,10)>t||e.end.slice(11,16)>now);
@@ -331,13 +351,47 @@ let ovTimer=null,seenRing=undefined;
 const camHost=u=>(u||'').replace('{host}',location.hostname);
 function openCam(ring){const c=cfg.camera||{};if(!c.url)return;$('ov').classList.add('on');$('pfs').classList.remove('on');
  $('ovlbl').textContent=ring?"Someone's at the front door":(c.name||'Camera');
- if(!$('ovbox').querySelector('iframe')){const f=document.createElement('iframe');f.src=camHost(c.url);f.allow='autoplay; fullscreen';
-  f.setAttribute('scrolling','no');f.setAttribute('frameborder','0');f.style.pointerEvents='none';$('ovbox').prepend(f)}
- wake(120000);$('ov').classList.add('on');clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
-function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');const f=$('ovbox').querySelector('iframe');if(f){f.src='about:blank';f.remove()}}
-function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring (no stream is loaded until a ring)
+ if(!$('ovfeed')){const f=document.createElement('div');f.className='cfeed';f.id='ovfeed';$('ovbox').prepend(f)}
+ camSync(); // CamFeed.start() stops the tile stream first: only one stream
+ wake(120000);clearTimeout(ovTimer);ovTimer=setTimeout(closeCam,60000)}
+function closeCam(){clearTimeout(ovTimer);$('ov').classList.remove('on');camSync()}
+function setupCamera(){if(location.hash==='#ring')openCam(true)} // demo: /dashboard/#ring
 $('ov').onclick=closeCam;
-// no always-on feed: the doorbell is the ring overlay (and the rail camera button); its iframe is created on open and cleared on close
+// ===== CamFeed: the ONLY code that opens a camera connection. One target at a time. =====
+const CamFeed={el:null,on:false,t:null,rt:null,img:null,cv:null,busy:false,cb:null,
+ start(el,cb){if(this.on&&this.el===el)return;this.stop();this.on=true;this.el=el;this.cb=cb||function(){};
+  if(CAM_MODE==='img-recycle')this._imgOpen();else this._cvOpen()},
+ stop(){clearTimeout(this.t);clearTimeout(this.rt);this.t=this.rt=null;this.busy=false;
+  const im=this.img;if(im){im.onload=im.onerror=null;im.src='';if(im.parentNode)im.parentNode.removeChild(im)}
+  if(CAM_MODE==='img-recycle')this.img=null;
+  if(this.cv&&this.cv.parentNode)this.cv.parentNode.removeChild(this.cv);
+  if(this.on&&this.cb)this.cb('off');this.on=false;this.el=null},
+ _err(){const self=this,el=this.el,cb=this.cb;this.stop();cb('err');
+  this.rt=setTimeout(function(){self.rt=null;if(!self.on)camSync(true)},CAM_RETRY_MS)}, // reconnect via camSync (respects night/hidden/overlay)
+ // (a) MJPEG <img>, removed from the DOM and recreated every CAM_RECYCLE_MS
+ _imgOpen(){const self=this,im=document.createElement('img');im.alt='';this.img=im;
+  im.onload=function(){self.cb('ok')};im.onerror=function(){self._err()};
+  im.src=camHost(CAM_MJPEG_URL)+'&t='+Date.now();this.el.appendChild(im);
+  this.t=setTimeout(function(){if(!self.on)return;im.onload=im.onerror=null;im.src='';if(im.parentNode)im.parentNode.removeChild(im);self.img=null;self._imgOpen()},CAM_RECYCLE_MS)},
+ // (b) ONE reused <canvas> + ONE reused Image; next request only after the previous finished
+ _cvOpen(){if(!this.cv)this.cv=document.createElement('canvas');if(!this.img)this.img=new Image();this.el.appendChild(this.cv);this._frame()},
+ _frame(){const self=this,im=this.img;if(!this.on||this.busy)return;this.busy=true;
+  im.onload=function(){if(!self.on)return;const cv=self.cv;
+   if(cv.width!==im.naturalWidth||cv.height!==im.naturalHeight){cv.width=im.naturalWidth||640;cv.height=im.naturalHeight||360}
+   cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);im.onload=im.onerror=null;im.src='';self.busy=false;self.cb('ok');
+   self.t=setTimeout(function(){self._frame()},CAM_FRAME_MS)};
+  im.onerror=function(){im.onload=im.onerror=null;self.busy=false;if(self.on)self._err()};
+  im.src=camHost(CAM_FRAME_URL)+'&t='+Date.now()}};
+function tileState(s){const t=$('camt');t.classList.toggle('ok',s==='ok');if(s==='err')$('camtx').textContent='Front door camera offline · reconnecting…';else if(s!=='ok')$('camtx').textContent='Connecting to front door…'}
+// decide where (if anywhere) the single stream should render
+function camSync(retry){
+ if($('ov').classList.contains('on')&&$('ovfeed')){clearTimeout(CamFeed.rt);CamFeed.rt=null;CamFeed.start($('ovfeed'));return}
+ if(!CamFeed.on&&CamFeed.rt&&!retry)return; // waiting for a reconnect
+ const night=$('night').classList.contains('on'),tile=$('camt').parentNode===$('grid');
+ if(document.hidden||night||!tile){clearTimeout(CamFeed.rt);CamFeed.rt=null;CamFeed.stop();return}
+ CamFeed.start($('camtf'),tileState)}
+document.addEventListener('visibilitychange',function(){camSync(true)});
+$('camt').onclick=e=>{if(e.target.closest('#nwb')){e.stopPropagation();anchor=add(anchor,7);load();return}openCam(false)};
 async function pollRing(){try{const d=await getJSON('api/doorbell');
   if(seenRing===undefined)seenRing=d.last_ring;
   else if(d.last_ring&&d.last_ring!==seenRing){seenRing=d.last_ring;openCam(true)}}catch(e){}}
@@ -371,7 +425,7 @@ let forceNight=false;
 function isNight(){if(forceNight)return true;const n=cfg.night||{start:'21:00',end:'06:00'},p=partsInTZ(new Date()),m=(+p.hour)*60+(+p.minute),a=toMin(n.start),b=toMin(n.end);
  if(location.hash==='#night')return true;return a<=b?(m>=a&&m<b):(m>=a||m<b)}
 function wake(ms){wakeUntil=Date.now()+(ms||120000);nightTick()}
-function nightTick(){const on=isNight()&&Date.now()>wakeUntil&&!$('ov').classList.contains('on');$('night').classList.toggle('on',on);
+function nightTick(){const on=isNight()&&Date.now()>wakeUntil&&!$('ov').classList.contains('on');$('night').classList.toggle('on',on);camSync();
  if(on){const d=new Date();$('ntime').textContent=d.toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'});$('ndate').textContent=d.toLocaleDateString('en-US',{timeZone:TZ,weekday:'long',month:'long',day:'numeric'})}}
 $('night').addEventListener('click',e=>{e.stopPropagation();forceNight=false;wake(120000)});
 document.addEventListener('touchstart',()=>{if(!$('night').classList.contains('on')&&isNight())wake(120000)},{passive:true});
