@@ -515,6 +515,29 @@ def resolve_category(name):
 
 # ================================================================ events
 
+# /app/event/list rejects ranges longer than this many days.
+MAX_RANGE_DAYS = 50
+# ... and ranges shorter than this many days.
+MIN_RANGE_DAYS = 7
+
+
+def _chunk_range(start, end, max_days=MAX_RANGE_DAYS, min_days=MIN_RANGE_DAYS):
+    """Split inclusive date range [start, end] into consecutive windows of at most
+    `max_days` days (inclusive). A short trailing window is extended backwards so
+    every window is at least `min_days` long (overlap is deduped by the caller)."""
+    if end < start:
+        return []
+    out, cur = [], start
+    while cur <= end:
+        ce = min(cur + timedelta(days=max_days - 1), end)
+        cs = cur
+        if (ce - cs).days + 1 < min_days and out:
+            cs = max(start, ce - timedelta(days=min_days - 1))
+        out.append((cs, ce))
+        cur = ce + timedelta(days=1)
+    return out
+
+
 def list_events(start_date, end_date, tok=None):
     """start_date / end_date = 'YYYY-MM-DD' (inclusive).
 
@@ -522,19 +545,29 @@ def list_events(start_date, end_date, tok=None):
     Timed rows store `startDatetime` as UTC; that instant is converted to
     ECALENDAR_TIMEZONE before the comparison. All-day rows are compared as
     calendar dates (see `event_local_start`). The API rejects ranges < 7 days,
-    so this always fetches a widened window and filters client-side.
+    so this always fetches a widened window and filters client-side. It also
+    rejects ranges > 50 days, so longer windows are fetched in <=50-day chunks
+    and merged (deduped on eventId + startDatetime).
     """
     _require_setup()
     s = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
     e = datetime.strptime(end_date[:10], "%Y-%m-%d").date()
     fetch_s = s - timedelta(days=3)
     fetch_e = max(e + timedelta(days=1), fetch_s + timedelta(days=9))
-    r = api("/app/event/list", {"deviceId": str(DEVICE),
-            "startDatetime": f"{fetch_s.isoformat()} 00:00:00",
-            "endDatetime": f"{fetch_e.isoformat()} 23:59:59"}, tok)
+    rows, seen = [], set()
+    for cs, ce in _chunk_range(fetch_s, fetch_e):
+        r = api("/app/event/list", {"deviceId": str(DEVICE),
+                "startDatetime": f"{cs.isoformat()} 00:00:00",
+                "endDatetime": f"{ce.isoformat()} 23:59:59"}, tok)
+        for row in r.get("rows", []):
+            key = (row.get("eventId"), row.get("startDatetime"))
+            if row.get("eventId") is not None and key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
     lo, hi = s - timedelta(days=1), e + timedelta(days=1)
     out = []
-    for row in r.get("rows", []):
+    for row in rows:
         local = event_local_start(row)
         if local is None:
             out.append(row)
@@ -959,6 +992,39 @@ def whoami(tok=None):
     """
     r = api("/app/user/mine/info", None, tok, method="GET")
     return r.get("data") or {}
+
+
+def list_categories(tok=None, include_hidden=True):
+    """Calendar categories ("profiles") on the device.
+
+    Request:  POST /app/user/event/category/list
+              {"deviceId": "<DEVICE_ID>", "pageSize": 1000, "returnHiddenCategory": 1}
+    Response rows carry userCalendarCategoryId, categoryName, categoryColor,
+    categoryType (0 shared / 1 person), syncCalenderId (non-null = external feed).
+    """
+    _require_device()
+    r = api("/app/user/event/category/list",
+            {"deviceId": str(DEVICE), "pageSize": 1000,
+             "returnHiddenCategory": 1 if include_hidden else 0}, tok)
+    rows = r.get("rows")
+    if rows is None:
+        data = r.get("data")
+        rows = data.get("rows", []) if isinstance(data, dict) else (data or [])
+    return rows
+
+
+def login(email, password):
+    """POST /app/user/login -> new token string.
+
+    WARNING: this issues a NEW token and invalidates every other session on the
+    account (the phone/Mac app, other scripts). Never call it casually.
+    """
+    r = api("/app/user/login", {"email": email, "password": password}, tok="null")
+    data = r.get("data") or {}
+    tok = data.get("token") if isinstance(data, dict) else None
+    if not tok:
+        raise RuntimeError("/app/user/login -> code=200 but no token in response")
+    return tok
 
 
 def family(tok=None):

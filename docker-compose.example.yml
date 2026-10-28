@@ -1,0 +1,13 @@
+# Copy to docker-compose.yml (or merge into the bakerserver stack) and create .env
+# from .env.example. Never commit .env.
+services:
+  ecal-gateway:
+    build: .
+    image: ecal-gateway:latest
+    container_name: ecal-gateway
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # LAN only. Bind to the server's LAN IP (e.g. "192.168.1.10:8080:8080") to avoid
+      # exposing it on every interface; never port-forward this from the router.
+      - "8080:8080"
