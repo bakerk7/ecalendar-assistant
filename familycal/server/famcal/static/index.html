@@ -1,0 +1,133 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fdf8f1"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Family"><title>Family Calendar</title>
+<style>
+:root{--bg:#fdf8f1;--ink:#2d2a3e;--mut:#7c7891;--card:#fff;--soft:#f6efe4;--acc:#ff7a59;--accd:#d9583a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.35 Nunito,Quicksand,-apple-system,Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 14px 6px}
+h1{margin:0;font-size:22px;font-weight:800}h1 small{color:var(--mut);font-weight:700;font-size:14px;margin-left:6px}
+nav{display:flex;gap:6px;overflow-x:auto;padding:8px 0 4px}nav button{flex:none}
+button{font:inherit;font-weight:800;border:0;border-radius:14px;padding:9px 14px;background:var(--soft);color:var(--ink);cursor:pointer}
+button.on,button.pri{background:var(--acc);color:#fff;box-shadow:0 3px 0 var(--accd)}
+button.sm{padding:5px 10px;font-size:14px;border-radius:10px}
+main{padding:6px 14px 90px}.card{background:var(--card);border-radius:18px;box-shadow:0 3px 0 #efe6d8,0 8px 24px rgba(80,60,30,.06);padding:12px 14px;margin:10px 0}
+.day{font-weight:800;color:var(--mut);margin:16px 2px 4px;font-size:14px;text-transform:uppercase;letter-spacing:.04em}.day.today{color:var(--acc)}
+.ev{display:flex;gap:10px;align-items:center;background:#fff;border-radius:14px;padding:10px 12px;margin:6px 0;box-shadow:0 2px 0 rgba(0,0,0,.05);position:relative;overflow:hidden}
+.ev:before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c,#999)}
+.ev .t{font-weight:800}.ev .w{color:var(--mut);font-size:13px;font-weight:700;min-width:58px}
+.dots{display:flex;gap:3px;margin-left:auto}.dot{width:22px;height:22px;border-radius:50%;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.chip{border-radius:999px;padding:7px 12px;background:var(--soft);font-weight:800;border:2px solid transparent}
+.chip.on{color:#fff}input,select,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:12px;border:2px solid #eee3d3;background:#fff;margin:4px 0}
+label{font-weight:800;font-size:13px;color:var(--mut)}.row{display:flex;gap:8px}.row>*{flex:1}
+.ch{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f3ece0}.ch:last-child{border:0}
+.box{width:28px;height:28px;border-radius:50%;border:3px solid var(--c);display:grid;place-items:center;color:#fff;font-weight:900;flex:none}
+.done .box{background:var(--c)}.done .lbl{text-decoration:line-through;color:var(--mut)}
+.star{margin-left:auto;background:#fff4d6;border-radius:10px;padding:2px 8px;font-weight:800;font-size:14px}
+.ph{display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px}.big{font-size:28px;font-weight:900}
+.mut{color:var(--mut)}.badge{background:var(--acc);color:#fff;border-radius:999px;padding:0 7px;font-size:12px;margin-left:4px}
+#sheet{position:fixed;inset:0;background:rgba(45,42,62,.35);display:none;align-items:flex-end;z-index:20}
+#sheet .in{background:var(--bg);width:100%;max-height:90vh;overflow:auto;border-radius:22px 22px 0 0;padding:16px 16px 30px}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:14px;display:none;z-index:30;font-weight:700}
+.fab{position:fixed;right:16px;bottom:20px;z-index:6;font-size:18px;padding:14px 20px;border-radius:20px}
+</style></head><body>
+<header><h1>Family <small id="sub"></small></h1>
+<nav id="tabs"></nav></header><main id="main"></main>
+<button class="pri fab" id="fab" onclick="editEvent()">+ Event</button>
+<div id="sheet" onclick="if(event.target==this)closeSheet()"><div class="in" id="sheetin"></div></div><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);let KEY=localStorage.famcal_key||new URLSearchParams(location.search).get('key')||'';
+if(KEY)localStorage.famcal_key=KEY;
+let P=[],PM={},TAB=localStorage.famcal_tab||'cal',TOTAG=0;
+async function api(path,opt={}){opt.headers=Object.assign({'X-API-Key':KEY,'Content-Type':'application/json'},opt.headers||{});
+ if(opt.body&&typeof opt.body!='string')opt.body=JSON.stringify(opt.body);
+ const r=await fetch(path,opt);if(r.status==401){KEY=prompt('Family Calendar key');if(KEY){localStorage.famcal_key=KEY;return api(path,opt)}}
+ const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.detail||('Error '+r.status));throw j}return j}
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',2200)}
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function fmtT(s){if(!s||s.length<16)return'All day';let h=+s.slice(11,13),m=s.slice(14,16);const ap=h>=12?'p':'a';h=h%12||12;return h+(m=='00'?'':':'+m)+ap}
+const dot=id=>{const p=PM[id]||PM.family;return`<span class="dot" style="background:${p.color}">${esc(p.name[0])}</span>`};
+const TABS=[['cal','📅 Calendar'],['tag','🏷️ To tag'],['chores','✅ Chores'],['stars','⭐ Rewards'],['lists','🛒 Lists'],['set','⚙️ Settings']];
+function tabs(){$('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="${TAB==k?'on':''}" onclick="go('${k}')">${n}${k=='tag'&&TOTAG?`<span class=badge>${TOTAG}</span>`:''}</button>`).join('');$('#fab').style.display=TAB=='cal'||TAB=='tag'?'':'none'}
+function go(k){TAB=k;localStorage.famcal_tab=k;tabs();render()}
+async function boot(){P=await api('/api/profiles');PM={};P.forEach(p=>PM[p.id]=p);const t=await api('/api/totag');TOTAG=t.length;
+ $('#sub').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});tabs();render()}
+async function render(){const m=$('#main');m.innerHTML='<p class=mut>Loading…</p>';try{m.innerHTML=await VIEWS[TAB]()}catch(e){m.innerHTML='<p>Could not load.</p>'}}
+let EVS={};
+function evRow(e){EVS[e.id]=e;const c=(PM[e.profiles[0]]||PM.family).color;
+ return`<div class="ev" style="--c:${c}" onclick="tagSheet('${e.id}')"><span class="w">${e.all_day?'All day':fmtT(e.start)}</span><span class="t">${esc(e.title)}</span><span class="dots">${e.profiles.map(dot).join('')}</span></div>`}
+const VIEWS={
+async cal(){const s=new Date(),e=new Date();e.setDate(e.getDate()+20);const r=await api(`/api/instances?start=${iso(s)}&end=${iso(e)}`);
+ const by={};r.items.forEach(i=>{const d=i.start.slice(0,10);(by[d]=by[d]||[]).push(i)});const td=iso(new Date());let h='';
+ const filt=localStorage.famcal_filter||'';h+=`<div class=chips>${[{id:'',name:'Everyone',color:'#2d2a3e'}].concat(P).map(p=>`<span class="chip ${filt==p.id?'on':''}" style="${filt==p.id?'background:'+p.color:''}" onclick="localStorage.famcal_filter='${p.id}';render()">${esc(p.name)}</span>`).join('')}</div>`;
+ Object.keys(by).sort().forEach(d=>{let it=by[d];if(filt)it=it.filter(i=>i.profiles.includes(filt));if(!it.length)return;
+  const dd=new Date(d+'T12:00');h+=`<div class="day ${d==td?'today':''}">${d==td?'Today · ':''}${dd.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</div>`+it.map(evRow).join('')});
+ return h||'<p class=mut>Nothing coming up.</p>'},
+async tag(){const t=await api('/api/totag');TOTAG=t.length;tabs();
+ return`<p class=mut>Events nobody is tagged on yet. They show as <b>Family</b> until you pick people.</p>`+(t.map(evRow).join('')||'<div class=card>🎉 All tagged!</div>')},
+async chores(){const c=await api('/api/chores');let h='';P.filter(p=>p.kind!='group').forEach(p=>{const mine=c.filter(x=>x.profile_id==p.id);
+ h+=`<div class=card><div class=ph><span class=dot style="background:${p.color}">${p.name[0]}</span>${esc(p.name)}<span class=star>⭐ ${p.stars}</span></div>`+
+ (mine.map(x=>`<div class="ch ${x.done?'done':''}" style="--c:${p.color}" onclick="toggleChore('${x.id}')"><span class=box>${x.done?'✓':''}</span><span class=lbl>${esc(x.emoji)} ${esc(x.title)}</span><span class=star>+${x.stars}⭐</span></div>`).join('')||'<p class=mut>No chores today</p>')+'</div>'});
+ return h+`<button class=pri onclick="addChore()">+ Add chore</button> <button onclick="manageChores()">Manage</button>`},
+async stars(){const rw=await api('/api/rewards');P=await api('/api/profiles');P.forEach(p=>PM[p.id]=p);
+ let h='<div class=card><div class=chips>'+P.filter(p=>p.kind!='group').map(p=>`<div style="text-align:center;flex:1"><span class=dot style="background:${p.color};width:40px;height:40px;font-size:18px;margin:auto">${p.name[0]}</span><div class=big>${p.stars}</div><div class=mut>${esc(p.name)}</div></div>`).join('')+'</div></div>';
+ h+=rw.map(r=>`<div class=card><div class=ph>${esc(r.emoji)} ${esc(r.title)}<span class=star>${r.cost}⭐</span></div><div class=chips>${P.filter(p=>p.kind!='group'&&(!r.profile_id||r.profile_id==p.id)).map(p=>`<button class=sm ${p.stars>=r.cost?'':'disabled style=opacity:.4'} onclick="redeem('${r.id}','${p.id}')">${esc(p.name)}</button>`).join('')}<button class=sm onclick="delReward('${r.id}')">🗑</button></div></div>`).join('');
+ return h+`<button class=pri onclick="addReward()">+ Add reward</button> <button onclick="adjust()">± Adjust stars</button>`},
+async lists(){const L=await api('/api/lists');const cur=localStorage.famcal_list&&L.find(l=>l.id==localStorage.famcal_list)||L[0];
+ let h=`<div class=chips>${L.map(l=>`<span class="chip ${l==cur?'on':''}" style="${l==cur?'background:var(--acc)':''}" onclick="localStorage.famcal_list='${l.id}';render()">${esc(l.emoji)} ${esc(l.name)} <span class=mut>${l.items.filter(i=>!i.done).length}</span></span>`).join('')}<span class=chip onclick="addList()">+ List</span></div>`;
+ if(!cur)return h;h+=`<div class=card><form onsubmit="addItem(event,'${cur.id}')" class=row><input id=ni placeholder="Add to ${esc(cur.name)}…"><button class=pri style="flex:0">Add</button></form>`+
+ cur.items.map(i=>`<div class="ch ${i.done?'done':''}" style="--c:var(--acc)"><span class=box onclick="itemDone('${i.id}',${i.done?0:1})">${i.done?'✓':''}</span><span class=lbl onclick="itemDone('${i.id}',${i.done?0:1})">${esc(i.text)}</span><button class=sm style="margin-left:auto" onclick="delItem('${i.id}')">✕</button></div>`).join('')+
+ `</div><button onclick="api('/api/lists/${cur.id}/clear-done',{method:'POST'}).then(render)">Clear checked</button>`;return h},
+async set(){const [st,ru,oa]=await Promise.all([api('/api/status'),api('/api/rules'),api('/oauth/status')]);
+ let h=`<div class=card><div class=ph>🔗 Google Calendar</div><p class=mut>Source: <b>${oa.source}</b> · ${oa.signed_in?'signed in':'not signed in'} · last sync ${esc(st.last_sync||'never')}${st.sync_error?' · <b style=color:#d33>sync error</b>':''}</p>
+ ${oa.signed_in?'':`<button class=pri onclick="google()">Connect Google…</button>`}</div>`;
+ h+=`<div class=card><div class=ph>🪄 Auto-tag rules</div><p class=mut>New events get people automatically when a rule matches. Otherwise they show as Family and land in “To tag”.</p>`+
+ ru.map(r=>`<div class=ch><span><b>${esc(r.kind)}</b> ${esc(r.pattern)} → ${r.profiles.map(dot).join('')}<br><span class=mut>${esc(r.note||'')}</span></span>${r.kind=='name'?'':`<button class=sm style="margin-left:auto" onclick="delRule(${r.id})">✕</button>`}</div>`).join('')+
+ `<button onclick="addRule()">+ Keyword rule</button></div>`;return h}};
+function sheet(h){$('#sheetin').innerHTML=h;$('#sheet').style.display='flex'}function closeSheet(){$('#sheet').style.display='none'}
+function chipPick(sel){return`<div class=chips id=pick>${P.filter(p=>p.kind!='group').map(p=>`<span class="chip ${sel.includes(p.id)?'on':''}" data-id="${p.id}" style="${sel.includes(p.id)?'background:'+p.color:''}" onclick="this.classList.toggle('on');this.style.background=this.classList.contains('on')?'${p.color}':''">${esc(p.name)}</span>`).join('')}</div>`}
+const picked=()=>[...document.querySelectorAll('#pick .chip.on')].map(c=>c.dataset.id);
+function tagSheet(id){const e=EVS[id];const sel=e.profiles.filter(p=>p!='family');
+ sheet(`<div class=ph>${esc(e.title)}</div><p class=mut>${e.all_day?'All day':fmtT(e.start)+' – '+fmtT(e.end)} · ${new Date(e.start.slice(0,10)+'T12:00').toDateString()}${e.recurring?' · repeats':''}<br>${e.tag_rule?'Tagged by: '+esc(e.tag_rule):''}</p>
+ <label>Who is this for? (none = Family)</label>${chipPick(sel)}<div class=row><button class=pri onclick="saveTags('${id}')">Save people</button><button onclick="editEvent('${id}')">Edit</button><button onclick="delEvent('${id}')">Delete</button></div>`)}
+async function saveTags(id){await api(`/api/events/${id}/tags`,{method:'PUT',body:{profiles:picked()}});closeSheet();toast('Saved');boot()}
+async function delEvent(id){if(!confirm('Delete this event'+(EVS[id].recurring?' (whole series)':'')+'?'))return;await api('/api/events/'+id,{method:'DELETE'});closeSheet();render()}
+function editEvent(id){const e=id?EVS[id]:{title:'',start:iso(new Date())+'T09:00',end:iso(new Date())+'T10:00',all_day:false,profiles:[]};
+ const d=e.start.slice(0,10),ad=e.all_day;sheet(`<div class=ph>${id?'Edit event':'New event'}</div>
+ <input id=et placeholder="What's happening?" value="${esc(e.title)}"><div class=row><div><label>Date</label><input id=ed type=date value="${d}"></div><div><label>All day</label><select id=ea><option value=0>No</option><option value=1 ${ad?'selected':''}>Yes</option></select></div></div>
+ <div class=row><div><label>Start</label><input id=es type=time value="${ad?'09:00':e.start.slice(11,16)}"></div><div><label>End</label><input id=ee type=time value="${ad?'10:00':(e.end||'').slice(11,16)}"></div></div>
+ ${id&&e.recurring?'<p class=mut>Repeating event: changes apply to the whole series.</p>':''}
+ <label>Who?</label>${chipPick(e.profiles.filter(p=>p!='family'))}<button class=pri onclick="saveEvent(${id?`'${id}'`:'null'})">Save</button>`)}
+async function saveEvent(id){const ad=$('#ea').value=='1',d=$('#ed').value,b={title:$('#et').value.trim(),all_day:ad,profiles:picked()};
+ if(!b.title)return toast('Add a title');if(ad){b.start=d;b.end=d}else{b.start=d+'T'+$('#es').value;b.end=d+'T'+($('#ee').value||$('#es').value);if(b.end<b.start)return toast('End is before start')}
+ if(id&&EVS[id].recurring&&b.start.slice(0,10)!=EVS[id].series_start.slice(0,10)){b.start=EVS[id].series_start.slice(0,10)+b.start.slice(10);b.end=EVS[id].series_start.slice(0,10)+b.end.slice(10)}
+ await api(id?'/api/events/'+id:'/api/events',{method:id?'PATCH':'POST',body:b});closeSheet();toast('Saved');boot()}
+async function toggleChore(id){await api(`/api/chores/${id}/toggle`,{method:'POST',body:{}});P=await api('/api/profiles');P.forEach(p=>PM[p.id]=p);render()}
+function addChore(){sheet(`<div class=ph>New chore</div><input id=ct placeholder="Chore"><div class=row><div><label>Emoji</label><input id=ce value="🧹"></div><div><label>Stars</label><input id=cs type=number value=1 min=0></div></div>
+ <label>Who?</label>${chipPick([])}<label>Days</label><div class=chips id=days>${'MTWTFSS'.split('').map((d,i)=>`<span class="chip on" style="background:var(--acc)" onclick="this.classList.toggle('on');this.style.background=this.classList.contains('on')?'var(--acc)':''">${d}</span>`).join('')}</div>
+ <button class=pri onclick="saveChore()">Save</button>`)}
+async function saveChore(){const who=picked(),days=[...document.querySelectorAll('#days .chip')].map(c=>c.classList.contains('on')?1:0).join('');
+ if(!$('#ct').value||!who.length)return toast('Title and person needed');for(const p of who)await api('/api/chores',{method:'POST',body:{title:$('#ct').value,emoji:$('#ce').value,stars:+$('#cs').value,profile_id:p,days}});closeSheet();render()}
+async function manageChores(){const c=await api('/api/chores/all');sheet('<div class=ph>All chores</div>'+c.map(x=>`<div class=ch>${dot(x.profile_id)} ${esc(x.emoji)} ${esc(x.title)} <span class=mut>${x.once_date||x.days}</span><button class=sm style="margin-left:auto" onclick="api('/api/chores/${x.id}',{method:'DELETE'}).then(manageChores).then(render)">✕</button></div>`).join(''))}
+async function redeem(r,p){if(!confirm('Spend stars for '+PM[p].name+'?'))return;await api(`/api/rewards/${r}/redeem`,{method:'POST',body:{profile_id:p}});toast('🎉 Enjoy!');render()}
+async function delReward(r){if(confirm('Remove reward?')){await api('/api/rewards/'+r,{method:'DELETE'});render()}}
+function addReward(){sheet(`<div class=ph>New reward</div><input id=rt placeholder="Reward"><div class=row><input id=re value="🎁"><input id=rc type=number value=10></div><button class=pri onclick="api('/api/rewards',{method:'POST',body:{title:$('#rt').value,emoji:$('#re').value,cost:+$('#rc').value}}).then(()=>{closeSheet();render()})">Save</button>`)}
+function adjust(){sheet(`<div class=ph>Adjust stars</div>${chipPick([])}<input id=ad type=number value=1><input id=ar placeholder="Reason"><button class=pri onclick="doAdjust()">Apply</button>`)}
+async function doAdjust(){for(const p of picked())await api('/api/stars/adjust',{method:'POST',body:{profile_id:p,delta:+$('#ad').value,reason:$('#ar').value||'adjusted'}});closeSheet();render()}
+async function addItem(ev,l){ev.preventDefault();const v=$('#ni').value.trim();if(!v)return;await api(`/api/lists/${l}/items`,{method:'POST',body:{text:v}});render().then(()=>$('#ni')&&$('#ni').focus())}
+async function itemDone(i,d){await api('/api/items/'+i,{method:'PATCH',body:{done:d}});render()}
+async function delItem(i){await api('/api/items/'+i,{method:'DELETE'});render()}
+async function addList(){const n=prompt('List name');if(n){await api('/api/lists',{method:'POST',body:{name:n}});render()}}
+function addRule(){sheet(`<div class=ph>Keyword rule</div><p class=mut>If the title contains this word, tag these people.</p><input id=rp placeholder="e.g. piano"><label>People</label>${chipPick([])}<button class=pri onclick="saveRule()">Save</button>`)}
+async function saveRule(){const w=$('#rp').value.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');if(!w)return;await api('/api/rules',{method:'POST',body:{kind:'keyword',pattern:'\\b'+w+'\\b',profiles:picked(),note:$('#rp').value+' → '+picked().join('+')}});closeSheet();render()}
+async function delRule(id){await api('/api/rules/'+id,{method:'DELETE'});render()}
+async function google(){const s=await api('/oauth/status');let h='<div class=ph>Connect Google</div>';
+ if(!s.client_saved)h+=`<p class=mut>Step 1: paste the OAuth client from Google Cloud (see GOOGLE-SETUP.md).</p><input id=gi placeholder="Client ID"><input id=gs placeholder="Client secret"><button class=pri onclick="api('/oauth/client',{method:'POST',body:{client_id:$('#gi').value,client_secret:$('#gs').value}}).then(google)">Save</button>`;
+ else{const u=await api('/oauth/start');h+=`<p>Step 2: <a href="${u.url}" target=_blank><b>Sign in with Google</b></a> (you@example.com) and press Allow.</p><p class=mut>Step 3: you'll land on a page that won't load (127.0.0.1…). Copy its full address and paste it here:</p><input id=gu placeholder="http://127.0.0.1:8765/?state=…&code=…"><button class=pri onclick="gFinish()">Finish</button><div id=gcals></div>`}
+ sheet(h)}
+async function gFinish(){const r=await api('/oauth/finish',{method:'POST',body:{url:$('#gu').value}});const o=r.calendars.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+ $('#gcals').innerHTML=`<label>Family (shared) calendar</label><select id=gsh>${o}</select><label>Soccer feed</label><select id=gso><option value="">(none)</option>${o}</select><button class=pri onclick="gPick()">Use these</button>`}
+async function gPick(){const r=await api('/oauth/calendars',{method:'POST',body:{shared:$('#gsh').value,soccer:$('#gso').value}});toast(r.ok?'Connected!':'Problem: '+r.error);closeSheet();boot()}
+boot();
+</script></body></html>

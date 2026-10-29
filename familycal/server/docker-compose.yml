@@ -1,0 +1,15 @@
+# Family Calendar helper. Runs alongside ecal-gateway (8090); does not touch it.
+services:
+  familycal:
+    build: .
+    image: familycal:latest
+    container_name: familycal
+    restart: unless-stopped
+    env_file: .env          # FAMCAL_API_KEY=...  (never commit)
+    environment:
+      - TZ=America/Chicago
+    ports:
+      - "8091:8091"         # LAN + tailnet; don't port-forward
+    volumes:
+      - ./data:/data
+    mem_limit: 256m

@@ -1,0 +1,9 @@
+android/build/
+__pycache__/
+*.pyc
+.pytest_cache/
+server/data/
+.env
+*.db
+calendar_db*
+google_token.json
