@@ -77,7 +77,7 @@ class MainActivity : Activity(), Host {
         C.K = resources.displayMetrics.widthPixels.coerceAtLeast(resources.displayMetrics.heightPixels) / 1920f
         Img.ctx = this
         api = Api(this)
-        mode = prefs.getString("default_view", "week")!!
+        mode = prefs.getString("default_view", "week")!!; Fmt.h24 = prefs.getBoolean("h24", false)
         takeConfig(intent)
         if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -105,8 +105,32 @@ class MainActivity : Activity(), Host {
     private val poll = object : Runnable {
         override fun run() { if (currentFocus !is EditText && ovl.childCount == 0) refresh(); ui.postDelayed(this, 60_000) }
     }
-    override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000) }
-    override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll) }
+    override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000); Rem.live = { l -> ui.post { showReminders(l) } } }
+    override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll); Rem.live = null }
+
+    /** Stock-style reminder popup on its own layer (never closes an open sheet) + notification sound; wakes sleep mode. */
+    private var remLayer: FrameLayout? = null
+    private fun showReminders(due: List<Rem.R>) {
+        if (due.isEmpty()) return
+        wakeUntil = System.currentTimeMillis() + 5 * 60_000; lastTouch = System.currentTimeMillis(); updateClock()
+        try { android.media.RingtoneManager.getRingtone(this, android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION))?.play() } catch (_: Exception) {}
+        remLayer?.let { root.removeView(it) }
+        val s = FrameLayout(this).apply { setBackgroundColor(Color.argb(0x66, 0, 0, 0)); isClickable = true }
+        val c = vbox(this).apply { background = round(Color.WHITE, 16f); isClickable = true; setPadding(px(28), px(24), px(28), px(24)) }
+        val h = hbox(this); h.addView(IconView(this, Ico(Ico.CLOCK, C.BLUE, 26f, 2f), px(26)))
+        h.addView(text("Reminder", 22f, C.INK, C.BOLD).apply { setPadding(px(12), 0, 0, 0) }, lp(0, WRAP, 1f))
+        h.addView(IconView(this, Ico(Ico.CLOSE, C.INK, 26f, 2f), px(26)).apply { setOnClickListener { root.removeView(s); remLayer = null } })
+        c.addView(h, lp(MATCH, WRAP))
+        for (r in due.take(4)) {
+            val row = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(16), px(14), px(16), px(14)) }
+            row.addView(text(r.title, 18f, C.INK, C.MED, 2)); row.addView(text(Rem.whenText(r), 15f, C.MUT).apply { setPadding(0, px(6), 0, 0) })
+            c.addView(row, lp(MATCH, WRAP).apply { topMargin = px(14) })
+        }
+        if (due.size > 4) c.addView(text("+${due.size - 4} more", 14f, C.MUT).apply { setPadding(0, px(10), 0, 0) })
+        c.addView(hbox(this, Gravity.END).apply { setPadding(0, px(22), 0, 0); addView(blueButton("Dismiss") { root.removeView(s); remLayer = null }) }, lp(MATCH, WRAP))
+        s.addView(c, FrameLayout.LayoutParams(px(560), WRAP, Gravity.CENTER))
+        root.addView(s, FrameLayout.LayoutParams(MATCH, MATCH)); remLayer = s
+    }
 
     // ================================================================= skeleton
     private fun build() {
@@ -226,6 +250,7 @@ class MainActivity : Activity(), Host {
         cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
+        Rem.store(this, j.optJSONArray("reminders"))
         chipCache.clear()
     }
 
@@ -658,7 +683,7 @@ class MainActivity : Activity(), Host {
         val tr = hbox(this).apply { setPadding(0, px(10), 0, 0) }
         fun tbox(label: String, get: () -> Int, set: (Int) -> Unit): TextView {
             val t = text("$label   ${Fmt.clock(get())}", 15f).apply { gravity = Gravity.CENTER; background = round(Color.WHITE, 6f)
-                setOnClickListener { v -> TimePickerDialog(this@MainActivity, { _, hh, mm -> set(hh * 60 + mm); (v as TextView).text = "$label   ${Fmt.clock(get())}" }, get() / 60, get() % 60, false).show() } }
+                setOnClickListener { v -> TimePickerDialog(this@MainActivity, { _, hh, mm -> set(hh * 60 + mm); (v as TextView).text = "$label   ${Fmt.clock(get())}" }, get() / 60, get() % 60, Fmt.h24).show() } }
             return t }
         tr.addView(tbox("From", { a }) { a = it }, lp(0, px(44), 1f))
         tr.addView(tbox("To", { b }) { b = it }, lp(0, px(44), 1f).apply { leftMargin = px(10) })
@@ -861,8 +886,8 @@ class MainActivity : Activity(), Host {
             DatePickerDialog(this, { _, y, m, d -> set("%04d-%02d-%02d".format(y, m + 1, d)); upd(); drawRep() }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show() }
         sdB.setOnClickListener { pickDate(date) { date = it; if (endDate < date) endDate = date } }
         edB.setOnClickListener { pickDate(endDate) { endDate = if (it < date) date else it } }
-        stB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> val dur = eMin - sMin; sMin = hh * 60 + mm; eMin = (sMin + maxOf(dur, 15)).coerceAtMost(23 * 60 + 59); upd() }, sMin / 60, sMin % 60, false).show() }
-        etB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> eMin = hh * 60 + mm; upd() }, eMin / 60, eMin % 60, false).show() }
+        stB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> val dur = eMin - sMin; sMin = hh * 60 + mm; eMin = (sMin + maxOf(dur, 15)).coerceAtMost(23 * 60 + 59); upd() }, sMin / 60, sMin % 60, Fmt.h24).show() }
+        etB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> eMin = hh * 60 + mm; upd() }, eMin / 60, eMin % 60, Fmt.h24).show() }
         for ((a, b) in listOf(sdB to stB, edB to etB)) {
             val r = hbox(this); r.addView(a, lp(0, px(62), 1f)); r.addView(b, lp(0, px(62), 1f).apply { leftMargin = px(14) })
             sheet.addView(r, lp(MATCH, WRAP).apply { topMargin = px(12) })
@@ -892,14 +917,16 @@ class MainActivity : Activity(), Host {
         }
         sheet.addView(remRow, lp(MATCH, WRAP).apply { topMargin = px(12) })
         sheet.addView(remList, lp(MATCH, WRAP))
-        sheet.addView(text("Reminders are saved with the event and ring on phones once it syncs to Google.", 13f, C.MUT, lines = 2).apply { setPadding(0, px(8), 0, 0) })
+        sheet.addView(text("Alerts on this tablet (popup + sound), and on phones once it syncs to Google.", 13f, C.MUT, lines = 2).apply { setPadding(0, px(8), 0, 0) })
         // synced calendar (stock "Pick a Synced calendar")
         val cb = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
         val ch = hbox(this); ch.addView(text("Pick a Synced calendar", 15f), lp(0, WRAP, 1f))
         val chev = IconView(this, Ico(Ico.UP, C.MUT, 24f, 2f), px(24)); ch.addView(chev); cb.addView(ch)
         val calList = vbox(this); cb.addView(calList)
-        val calOpts = if (e != null) listOf(cals.firstOrNull { it.id == e.cal } ?: Cal(e.cal, e.cal.replaceFirstChar { it.uppercase() }, false)) else writable.ifEmpty { listOf(Cal("shared", "Shared Calendar", true)) }
-        fun drawCals() = choice(calList, calOpts.map { it.name + if (e != null) "  (move not supported)" else "" }, calOpts.indexOfFirst { it.id == cal }.coerceAtLeast(0)) { i -> if (e == null) { cal = calOpts[i].id; drawCalsLater() } }
+        val curCal = e?.let { ev -> cals.firstOrNull { it.id == ev.cal } ?: Cal(ev.cal, ev.cal.replaceFirstChar { it.uppercase() }, false) }
+        val canMove = curCal == null || curCal.writable
+        val calOpts = if (!canMove) listOf(curCal!!) else writable.ifEmpty { listOf(Cal("shared", "Shared Calendar", true)) }
+        fun drawCals() = choice(calList, calOpts.map { it.name + if (!canMove) "  (read-only feed)" else "" }, calOpts.indexOfFirst { it.id == cal }.coerceAtLeast(0)) { i -> if (canMove) { cal = calOpts[i].id; drawCalsLater() } }
         drawCalsFn = { drawCals() }; drawCals()
         ch.setOnClickListener { calList.visibility = if (calList.visibility == View.GONE) View.VISIBLE else View.GONE
             chev.setImage(Ico(if (calList.visibility == View.GONE) Ico.DOWN else Ico.UP, C.MUT, 24f, 2f)) }
@@ -960,7 +987,7 @@ class MainActivity : Activity(), Host {
                 if (until.isNotEmpty()) r += ";UNTIL=" + until.replace("-", "") + if (allDay) "" else "T235959"
                 if (e == null || repTouched || r != e.rrule) body.put("rrule", r)
             } else if (!repOn && (e == null || repTouched || e.rrule.isNotEmpty() && e.anniversary)) body.put("rrule", JSONObject.NULL)
-            if (e == null) body.put("cal", cal)
+            if (e == null || cal != e.cal) body.put("cal", cal)
             hideKb(title); closeOverlay()
             val ok = { _: String -> toast("Saved"); if (e == null) anchor = if (mode == "month") anchor else date; refresh() }
             if (e == null) api.post("/api/events", body, ok, { toast(it) }) else api.call("PATCH", "/api/events/${e.id}", body, ok, { toast(it) })
@@ -1017,7 +1044,7 @@ class MainActivity : Activity(), Host {
         val (db, dt) = vb("Date"); val (tb, tt) = vb("Time")
         fun upd() { dt.text = "${Fmt.DOW[D.dow(date)]}, ${D.short(date)}"; tt.text = if (tm < 0) "All day" else Fmt.clock(tm) }
         db.setOnClickListener { val c = D.cal(date); DatePickerDialog(this, { _, y, m, d -> date = "%04d-%02d-%02d".format(y, m + 1, d); upd() }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show() }
-        tb.setOnClickListener { val t0 = if (tm < 0) 8 * 60 else tm; TimePickerDialog(this, { _, hh, mm -> tm = hh * 60 + mm; adTref?.set(false); upd() }, t0 / 60, t0 % 60, false).show() }
+        tb.setOnClickListener { val t0 = if (tm < 0) 8 * 60 else tm; TimePickerDialog(this, { _, hh, mm -> tm = hh * 60 + mm; adTref?.set(false); upd() }, t0 / 60, t0 % 60, Fmt.h24).show() }
         dr.addView(db, lp(0, px(62), 1f)); dr.addView(tb, lp(0, px(62), 1f).apply { leftMargin = px(14) })
         sheet.addView(dr, lp(MATCH, WRAP).apply { topMargin = px(12) })
         val (adR, adT) = switchRow(-1, "All day", tm < 0) { on -> tm = if (on) -1 else 8 * 60; upd() }
@@ -1088,9 +1115,9 @@ class MainActivity : Activity(), Host {
         val secs = listOf("General" to "icon_home_setting", "Calendar" to "icon_home_cal", "Tasks" to "icon_home_chore", "Sleep" to "icon_home_sleep",
             "Wi-Fi" to "icon_home_wifi", "About" to "icon_home_more")
         for ((n, ic) in secs) {
-            val r = hbox(this).apply { setPadding(px(28), 0, px(10), 0); setOnClickListener { settings(n) }; if (n == sec) foreground = SelBar() }
+            val r = hbox(this).apply { setPadding(px(28), 0, px(10), 0); setOnClickListener { settings(n) }; if (n == sec || (sec == "Stars" && n == "Tasks")) foreground = SelBar() }
             r.addView(BmpView(this, Img.get(ic), px(30)))
-            r.addView(text(n, 15f, if (n == sec) C.INK else C.MUT).apply { setPadding(px(18), 0, 0, 0) })
+            r.addView(text(n, 15f, if (n == sec || (sec == "Stars" && n == "Tasks")) C.INK else C.MUT).apply { setPadding(px(18), 0, 0, 0) })
             menu.addView(r, lp(MATCH, px(76)))
         }
         root2.addView(menu, lp(px(215), MATCH))
@@ -1126,7 +1153,7 @@ class MainActivity : Activity(), Host {
                 row("Time zone", value(java.util.TimeZone.getDefault().getDisplayName(false, java.util.TimeZone.LONG).replace(" Standard", "")
                     .replace("Central Time", "Central Time"), false))
                 row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE })
-                row("Use 24-hour format", sw("h24", false, false), false)
+                row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
                 head("Show")
                 row("Show weather information", sw("show_weather", true) { render() })
@@ -1137,6 +1164,8 @@ class MainActivity : Activity(), Host {
             "Calendar" -> {
                 head("Calendar")
                 row("Default view", cycle("default_view", listOf("week" to "Week", "month" to "Month", "day" to "Day", "schedule" to "Schedule"), "week"))
+                row("Reminder alerts (popup + sound)", sw("rem_on", true) { Rem.schedule(this) })
+                row("Test reminder alert", value("")) { showReminders(listOf(Rem.R("test", System.currentTimeMillis(), "Test reminder", "", true, 0))) }
                 row("Default reminder", value(remLabel(prefs.getInt("def_reminder", 0))).apply { setOnClickListener {
                     val i = (REM_MIN.indexOf(prefs.getInt("def_reminder", 0)) + 1) % REM_MIN.size; prefs.edit().putInt("def_reminder", REM_MIN[i]).apply(); settings(sec) } })
                 head("Synced calendars")
@@ -1147,10 +1176,45 @@ class MainActivity : Activity(), Host {
             "Tasks" -> {
                 head("Tasks")
                 row("Show chores on calendar", sw("chores_on_cal", true))
-                row("Task stars", value("Set per task", false))
+                row("Star values", value("")) { settings("Stars") }
                 head("Lists")
                 for (l in lists) row(l.name, value("${l.items.count { !it.done }} open"))  { closeOverlay(); page = "lists"; render() }
                 row("+ Add List", null) { nameList(null) }
+            }
+            "Stars" -> {
+                // stock "assign star values": every task once (multi-person copies grouped), sortable by size
+                val top = hbox(this); top.addView(text("Star values", 20f, C.INK, C.BOLD), lp(0, WRAP, 1f))
+                val big = prefs.getString("star_sort", "big") == "big"
+                top.addView(pill(if (big) "Large to small stars" else "Small to large stars", 14f, true) {
+                    prefs.edit().putString("star_sort", if (big) "small" else "big").apply(); settings("Stars") })
+                body.addView(top.apply { setPadding(0, px(30), 0, px(8)) }, lp(MATCH, WRAP))
+                body.addView(text("Stars are earned when a task is checked off. Changes apply to everyone the task is assigned to.", 13f, C.MUT, lines = 2).apply { setPadding(0, 0, 0, px(14)) })
+                val listBox = vbox(this); body.addView(listBox, lp(MATCH, WRAP))
+                listBox.addView(text("Loading…", 15f, C.MUT))
+                api.get("/api/chores/all", { js ->
+                    val all = Parse.chores(JSONArray(js))
+                    val groups = all.groupBy { it.grp.ifEmpty { it.id } }.values.sortedWith(compareBy<List<Chore>>({ if (big) -it[0].stars else it[0].stars }, { it[0].title.lowercase() }))
+                    listBox.removeAllViews()
+                    if (groups.isEmpty()) listBox.addView(text("No tasks yet. Add one with the + button.", 15f, C.MUT))
+                    for (g in groups) {
+                        val c0 = g[0]; var st = c0.stars
+                        val r = hbox(this); r.setPadding(0, px(8), 0, px(8))
+                        r.addView(text(c0.emoji.ifEmpty { "⭐" }, 26f).apply { gravity = Gravity.CENTER }, lp(px(44), WRAP))
+                        val tc = vbox(this).apply { setPadding(px(10), 0, 0, 0) }
+                        tc.addView(text(c0.title, 16f)); val av = hbox(this).apply { setPadding(0, px(6), 0, 0) }
+                        for (c in g) av.addView(Avatar(this@MainActivity, prof(c.profile), px(24)), lp(px(24), px(24)).apply { rightMargin = px(6) })
+                        tc.addView(av); r.addView(tc, lp(0, WRAP, 1f))
+                        r.addView(BmpView(this, Img.get("star3"), px(22)), lp(px(22), px(22)).apply { rightMargin = px(10) })
+                        val sv = text("$st", 17f, C.INK, C.MED).apply { gravity = Gravity.CENTER }
+                        fun step(d: Int) { val n = (st + d).coerceIn(0, 20); if (n == st) return; st = n; sv.text = "$st"
+                            for (c in g) api.call("PATCH", "/api/chores/${c.id}", JSONObject().put("stars", st), { lastJson = 0 }, { toast(it) }) }
+                        r.addView(text("–", 20f, C.BLUE, C.MED).apply { gravity = Gravity.CENTER; background = oval(C.FIELD); setOnClickListener { step(-1) } }, lp(px(36), px(36)))
+                        r.addView(sv, lp(px(44), WRAP))
+                        r.addView(text("+", 20f, C.BLUE, C.MED).apply { gravity = Gravity.CENTER; background = oval(C.FIELD); setOnClickListener { step(1) } }, lp(px(36), px(36)))
+                        listBox.addView(View(this).apply { setBackgroundColor(C.LINE) }, lp(MATCH, px(1)))
+                        listBox.addView(r, lp(MATCH, WRAP))
+                    }
+                }, { listBox.removeAllViews(); listBox.addView(text("Can't reach server", 15f, C.MUT)) })
             }
             "Sleep" -> {
                 head("Sleep Mode")
@@ -1201,7 +1265,7 @@ class MainActivity : Activity(), Host {
             titleTv.text = "${Fmt.MON[D.month(anchor)]} ${anchor.take(4)}"; timeTv.visibility = View.GONE; timeDiv.visibility = View.GONE
         }
         if (offline) titleTv.append("  ⚠")
-        nightClock.text = Fmt.clock(m).substring(0, 5).trimStart('0')
+        nightClock.text = if (Fmt.h24) Fmt.clock(m) else Fmt.clock(m).substring(0, 5).trimStart('0')
         val a = mins(prefs.getString("sleep_start", "21:30")); val b = mins(prefs.getString("sleep_end", "06:30"))
         // the night belongs to the day it started on (Mon..Sun = 0..6), so Fri 9pm–Sat 6am follows Friday's box
         val dowNow = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7

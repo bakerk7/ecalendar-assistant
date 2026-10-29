@@ -200,6 +200,15 @@ class Service:
         if not e:
             raise KeyError(eid)
         cal = self._cal(e["cal"])
+        dest = data.get("cal")
+        if dest and dest != e["cal"]:
+            dcal = self._cal(dest)
+            if not (cal.get("writable") and dcal.get("writable")):
+                raise ValueError("both calendars must be writable to move an event")
+            with self.lock:
+                self.source.move(self._gcal(cal), eid, self._gcal(dcal))
+                self.db.x("UPDATE events SET cal=? WHERE id=?", (dest, eid))
+            cal = dcal
         body = {k: data[k] for k in ("title", "description", "location", "start", "end", "all_day", "rrule", "reminders", "anniversary") if k in data}
         if "start" in body and "all_day" not in body:
             body["all_day"] = bool(e["all_day"])
@@ -234,6 +243,23 @@ class Service:
                 "profiles": prof or ["family"], "tag_source": r.get("tsrc"), "tag_rule": r.get("trule"),
                 "needs_tag": bool(r.get("needs_review")), "origin": r.get("origin"),
                 "reminders": json.loads(r.get("mrem") or "[]"), "anniversary": bool(r.get("manniv"))}
+
+    def upcoming_reminders(self, now=None, hours=48):
+        """Reminder alerts due in the next `hours` (local naive times, like event starts). All-day reminders
+        count back from midnight of the event day, the way Google does."""
+        now = now or datetime.now()
+        out = []
+        for ev in self.instances(now.date(), (now + timedelta(hours=hours)).date() + timedelta(days=2)):
+            for m in ev.get("reminders") or []:
+                try:
+                    at = _pdt(ev["start"]) - timedelta(minutes=int(m))
+                except (TypeError, ValueError):
+                    continue
+                if now - timedelta(minutes=10) <= at <= now + timedelta(hours=hours):
+                    out.append({"id": ev["id"], "title": ev["title"], "start": ev["start"], "end": ev["end"],
+                                "all_day": ev["all_day"], "minutes": int(m), "profiles": ev["profiles"],
+                                "at": at.strftime("%Y-%m-%dT%H:%M")})
+        return sorted(out, key=lambda r: r["at"])
 
     def instances(self, start, end):
         """Expanded occurrences overlapping [start, end] (dates, inclusive)."""

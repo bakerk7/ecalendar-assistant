@@ -69,7 +69,7 @@ fun pressable(normal: Drawable, pressed: Drawable) = StateListDrawable().apply {
 
 fun Context.text(s: CharSequence, size: Float, color: Int = C.INK, tf: Typeface = C.REG, lines: Int = 1): TextView =
     TextView(this).apply {
-        text = s; setTextSize(TypedValue.COMPLEX_UNIT_PX, fpx(size)); setTextColor(color); typeface = tf
+        text = Emo.apply(s, fpx(size)); setTextSize(TypedValue.COMPLEX_UNIT_PX, fpx(size)); setTextColor(color); typeface = tf
         if (lines > 0) { maxLines = lines; ellipsize = TextUtils.TruncateAt.END }
         includeFontPadding = false
     }
@@ -200,14 +200,15 @@ object Fmt {
     val DOW = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val DOWL = arrayOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
     /** Stock time style: "07:41 AM". */
-    fun clock(min: Int): String { val h = min / 60; val m = min % 60; val h12 = if (h % 12 == 0) 12 else h % 12
+    @JvmField var h24 = false
+    fun clock(min: Int): String { val h = min / 60; if (h24) return "%02d:%02d".format(h, min % 60); val m = min % 60; val h12 = if (h % 12 == 0) 12 else h % 12
         return "%02d:%02d %s".format(h12, m, if (h >= 12) "PM" else "AM") }
     fun time(min: Int, short: Boolean = true): String {
-        val h = min / 60; val m = min % 60; val ap = if (h >= 12) "p" else "a"; val h12 = if (h % 12 == 0) 12 else h % 12
+        val h = min / 60; val m = min % 60; if (h24) return "%d:%02d".format(h, m); val ap = if (h >= 12) "p" else "a"; val h12 = if (h % 12 == 0) 12 else h % 12
         return if (short && m == 0) "$h12$ap" else "$h12:${"%02d".format(m)}$ap"
     }
     fun hm(s: String) = if (s.length >= 16) clock(s.substring(11, 13).toInt() * 60 + s.substring(14, 16).toInt()) else ""
-    fun hourLabel(h: Int) = "%02d:00 %s".format(if (h % 12 == 0) 12 else h % 12, if (h >= 12) "pm" else "am")
+    fun hourLabel(h: Int) = if (h24) "%02d:00".format(h) else "%02d:00 %s".format(if (h % 12 == 0) 12 else h % 12, if (h >= 12) "pm" else "am")
 }
 
 /** Stock blue pill toggle (drawn, no Switch inflation/animation). */
@@ -224,5 +225,32 @@ class Toggle(ctx: Context, var on: Boolean, var enabled2: Boolean = true, val on
         c.drawRoundRect(r, h / 2, h / 2, p)
         p.color = Color.WHITE; val rad = (h - 2 * t) / 2 - fpx(2.5f)
         c.drawCircle(if (on) w - h / 2 else h / 2, h / 2, rad, p)
+    }
+}
+
+/** Colour emoji: the tablet font draws some emoji (🛏️ 🍽️ 🗑️ 🦷 …) black-and-white or not at all, so known
+ *  emoji are swapped for bundled Noto colour PNGs (assets/emo, Apache-2.0) via ImageSpan. */
+object Emo {
+    private val miss = HashSet<String>()
+    fun apply(s: CharSequence, size: Float): CharSequence {
+        var sb: android.text.SpannableStringBuilder? = null
+        var i = 0
+        while (i < s.length) {
+            val cp = Character.codePointAt(s, i); val n = Character.charCount(cp)
+            if (cp >= 0x2300) {
+                val h = Integer.toHexString(cp); var end = i + n
+                if (end < s.length && s[end] == '\uFE0F') end++
+                val b = if (h in miss) null else Img.get("emo/e_$h")
+                if (b == null) miss.add(h) else {
+                    if (sb == null) sb = android.text.SpannableStringBuilder(s)
+                    val d = android.graphics.drawable.BitmapDrawable(Img.ctx.resources, b); val z = (size * 1.15f).toInt()
+                    d.setBounds(0, 0, z, z)
+                    sb.setSpan(android.text.style.ImageSpan(d, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM), i, end, 0)
+                }
+                i = end; continue
+            }
+            i += n
+        }
+        return sb ?: s
     }
 }

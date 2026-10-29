@@ -11,6 +11,7 @@ test -f build/classes/com/bakerk7/familycalendar/MainActivity.class
 # R8 shrinks kotlin-stdlib down to what we use (smaller dex = less RAM on the tablet).
 cat > build/keep.pro <<'K'
 -keep class com.bakerk7.familycalendar.MainActivity { *; }
+-keep class com.bakerk7.familycalendar.RemReceiver { *; }
 -dontobfuscate
 -dontwarn **
 K

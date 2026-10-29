@@ -25,6 +25,7 @@ class CalendarSource:
     def create(self, cal_id, ev): raise NotImplementedError
     def update(self, cal_id, ev_id, ev): raise NotImplementedError
     def delete(self, cal_id, ev_id): raise NotImplementedError
+    def move(self, cal_id, ev_id, dest_id): raise NotImplementedError
     def set_tags(self, cal_id, ev_id, profiles): raise NotImplementedError
     def status(self): return {"source": self.name}
 
@@ -74,6 +75,16 @@ class FixtureSource(CalendarSource):
             # like Google PATCH: untouched fields (incl. extendedProperties/tags) survive
             cur.update({k: v for k, v in ev.items() if k not in ("id", "tags")})
             cur["updated"] = datetime.now().isoformat()
+            self._save()
+            return dict(cur)
+
+    def move(self, cal_id, ev_id, dest_id):
+        with self.lock:
+            cur = self.data.setdefault(cal_id, {}).pop(ev_id, None)
+            if cur is None:
+                raise KeyError(ev_id)
+            cur["updated"] = datetime.now().isoformat()
+            self.data.setdefault(dest_id, {})[ev_id] = cur
             self._save()
             return dict(cur)
 
@@ -315,6 +326,11 @@ class GoogleSource(CalendarSource):
         ev = {k: v for k, v in ev.items() if k != "tags"}
         return from_google(self._call("PATCH", f"/calendars/{q}/events/{ev_id}", body=to_google(ev))[1])
 
+    def move(self, cal_id, ev_id, dest_id):
+        # Google Calendar events.move: same event id, new organizer calendar
+        q = urllib.parse.quote(cal_id, safe="")
+        return from_google(self._call("POST", f"/calendars/{q}/events/{ev_id}/move", params={"destination": dest_id})[1])
+
     def delete(self, cal_id, ev_id):
         q = urllib.parse.quote(cal_id, safe="")
         self._call("DELETE", f"/calendars/{q}/events/{ev_id}")
@@ -403,7 +419,7 @@ class IcsSource(CalendarSource):
 
     def _ro(self, *a):
         raise RuntimeError("this calendar is a read-only ICS feed")
-    create = update = delete = _ro
+    create = update = delete = move = _ro
 
     def set_tags(self, cal_id, ev_id, profiles):
         pass  # tags live in the helper DB for feed events
@@ -423,6 +439,10 @@ class RoutingSource(CalendarSource):
     def create(self, cal_id, ev): return self._pick(cal_id).create(cal_id, ev)
     def update(self, cal_id, ev_id, ev): return self._pick(cal_id).update(cal_id, ev_id, ev)
     def delete(self, cal_id, ev_id): return self._pick(cal_id).delete(cal_id, ev_id)
+    def move(self, cal_id, ev_id, dest_id):
+        if self._pick(cal_id) is not self.main or self._pick(dest_id) is not self.main:
+            raise ValueError("can't move events to or from a read-only feed")
+        return self.main.move(cal_id, ev_id, dest_id)
     def set_tags(self, cal_id, ev_id, p): return self._pick(cal_id).set_tags(cal_id, ev_id, p)
     def status(self): return self.main.status()
     def __getattr__(self, k):  # list_calendars, subscribe, ... on the Google source

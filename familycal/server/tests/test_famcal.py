@@ -324,3 +324,40 @@ def test_phase2_meta_chores_lists(tmp_path):
     ls = c.patch(f"/api/lists/{lid}", json={"name": "Trip 2"}).json()
     assert any(l["name"] == "Trip 2" for l in ls)
     assert c.delete(f"/api/lists/{lid}").json()["ok"]
+
+
+def test_phase3_move_event(tmp_path):
+    from fastapi.testclient import TestClient
+    from famcal.app import create_app
+    from famcal.core import Service
+    from famcal.db import DB
+    from famcal.sources import FixtureSource
+    fx = FixtureSource(str(tmp_path / "fx.json"))
+    svc = Service(DB(":memory:"), fx)
+    svc.db.x("INSERT INTO calendars(id,name,google_id,color,writable) VALUES('kids','Kids',NULL,'#00AA00',1)")
+    c = TestClient(create_app(svc, api_key="", data_dir=str(tmp_path), start_sync=False))
+    ev = c.post("/api/events", json={"title": "Move me", "start": "2026-11-02T10:00", "end": "2026-11-02T11:00",
+                                      "profiles": ["jack"]}).json()
+    assert ev["cal"] == "shared"
+    ev2 = c.patch(f"/api/events/{ev['id']}", json={"cal": "kids", "title": "Moved"}).json()
+    assert ev2["cal"] == "kids" and ev2["title"] == "Moved" and ev2["profiles"] == ["jack"]
+    assert ev["id"] in fx.data["kids"] and ev["id"] not in fx.data.get("shared", {})
+    assert c.patch(f"/api/events/{ev['id']}", json={"cal": "soccer"}).status_code == 400
+    svc.sync()
+    assert svc.event(ev["id"])["cal"] == "kids"
+
+
+def test_phase3_upcoming_reminders(tmp_path):
+    from datetime import datetime
+    from famcal.core import Service
+    from famcal.db import DB
+    from famcal.sources import FixtureSource
+    svc = Service(DB(":memory:"), FixtureSource(str(tmp_path / "fx.json")))
+    svc.create_event({"title": "Dentist", "start": "2026-11-02T10:00", "end": "2026-11-02T11:00", "reminders": [0, 30]}, "shared")
+    svc.create_event({"title": "Daily", "start": "2026-10-01T08:00", "end": "2026-10-01T08:15", "rrule": "FREQ=DAILY", "reminders": [5]}, "shared")
+    svc.create_event({"title": "No rem", "start": "2026-11-02T12:00", "end": "2026-11-02T13:00"}, "shared")
+    r = svc.upcoming_reminders(now=datetime(2026, 11, 2, 9, 0), hours=24)
+    ats = [(x["title"], x["at"]) for x in r]
+    assert ("Dentist", "2026-11-02T09:30") in ats and ("Dentist", "2026-11-02T10:00") in ats
+    assert ("Daily", "2026-11-03T07:55") in ats and not any(t == "No rem" for t, _ in ats)
+    assert ats == sorted(ats, key=lambda x: x[1])

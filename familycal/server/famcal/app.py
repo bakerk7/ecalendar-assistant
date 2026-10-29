@@ -179,7 +179,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
 
     @app.get("/api/chores/all", dependencies=A)
     def chores_all():
-        return db.q("SELECT * FROM chores WHERE active=1 ORDER BY profile_id, sort, title")
+        return db.q("SELECT c.*, m.time, m.grp FROM chores c LEFT JOIN chore_meta m ON m.chore_id=c.id WHERE c.active=1 ORDER BY c.profile_id, c.sort, c.title")
 
     @app.post("/api/chores", dependencies=A)
     def add_chore(body: dict = Body(...)):
@@ -323,7 +323,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         s, e = _day(start, "start"), _day(end, "end")
         if e < s or (e - s).days > 120:
             raise HTTPException(400, "bad range")
-        return {"profiles": svc.profiles(), "items": svc.instances(s, e), "chores": svc.chores_for(_day(chores_date) if chores_date else date.today()),
+        return {"profiles": svc.profiles(), "items": svc.instances(s, e), "chores": svc.chores_for(_day(chores_date) if chores_date else date.today()), "reminders": svc.upcoming_reminders(),
                 "calendars": [{"id": c["id"], "name": c["name"], "color": c.get("color"),
                                "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),
