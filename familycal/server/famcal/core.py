@@ -127,6 +127,12 @@ class Service:
                        ev.get("location", ""), ev["start"], ev.get("end"), int(bool(ev.get("all_day"))),
                        ev.get("rrule"), json.dumps(ev.get("exdates") or []), ev.get("creator"),
                        ev["id"], ev["id"], ev.get("updated"), ev.get("master_id"), ev.get("original_start")))
+        if "reminders" in ev or "anniversary" in ev:
+            cur_m = self.db.one("SELECT * FROM event_meta WHERE event_id=?", (ev["id"],)) or {}
+            rem = ev["reminders"] if ev.get("reminders") is not None else json.loads(cur_m.get("reminders") or "[]")
+            ann = ev["anniversary"] if "anniversary" in ev else cur_m.get("anniversary", 0)
+            self.db.x("INSERT OR REPLACE INTO event_meta(event_id,reminders,anniversary) VALUES(?,?,?)",
+                      (ev["id"], json.dumps([int(m) for m in rem or []]), int(bool(ann))))
         tag = self.db.one("SELECT profiles, source FROM tags WHERE event_id=?", (ev["id"],))
         valid = self.valid_ids()
         if ev.get("tags") is not None:
@@ -177,7 +183,7 @@ class Service:
     def create_event(self, data, cal_id="shared", creator=None):
         cal = self._cal(cal_id)
         prof = data.get("profiles")
-        body = {k: data[k] for k in ("title", "description", "location", "start", "end", "all_day", "rrule") if k in data}
+        body = {k: data[k] for k in ("title", "description", "location", "start", "end", "all_day", "rrule", "reminders", "anniversary") if k in data}
         body.setdefault("end", body["start"])
         if prof is not None:
             body["tags"] = [p for p in prof if p in self.valid_ids()]
@@ -194,7 +200,7 @@ class Service:
         if not e:
             raise KeyError(eid)
         cal = self._cal(e["cal"])
-        body = {k: data[k] for k in ("title", "description", "location", "start", "end", "all_day", "rrule") if k in data}
+        body = {k: data[k] for k in ("title", "description", "location", "start", "end", "all_day", "rrule", "reminders", "anniversary") if k in data}
         if "start" in body and "all_day" not in body:
             body["all_day"] = bool(e["all_day"])
         if "start" in body and "end" not in body:
@@ -215,8 +221,8 @@ class Service:
         self.db.x("UPDATE events SET deleted=1 WHERE id=?", (eid,))
 
     def event(self, eid):
-        r = self.db.one("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review
-                           FROM events e LEFT JOIN tags t ON t.event_id=e.id WHERE e.id=?""", (eid,))
+        r = self.db.one("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review, m.reminders mrem, m.anniversary manniv
+                           FROM events e LEFT JOIN tags t ON t.event_id=e.id LEFT JOIN event_meta m ON m.event_id=e.id WHERE e.id=?""", (eid,))
         return self._shape(r) if r else None
 
     def _shape(self, r, inst_start=None, inst_end=None):
@@ -226,14 +232,15 @@ class Service:
                 "start": inst_start or r["start"], "end": inst_end or r["end"],
                 "series_start": r["start"], "rrule": r["rrule"], "recurring": bool(r["rrule"]),
                 "profiles": prof or ["family"], "tag_source": r.get("tsrc"), "tag_rule": r.get("trule"),
-                "needs_tag": bool(r.get("needs_review")), "origin": r.get("origin")}
+                "needs_tag": bool(r.get("needs_review")), "origin": r.get("origin"),
+                "reminders": json.loads(r.get("mrem") or "[]"), "anniversary": bool(r.get("manniv"))}
 
     def instances(self, start, end):
         """Expanded occurrences overlapping [start, end] (dates, inclusive)."""
         s = datetime.combine(start, datetime.min.time())
         e = datetime.combine(end, datetime.max.time())
-        rows = self.db.q("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review
-                            FROM events e LEFT JOIN tags t ON t.event_id=e.id
+        rows = self.db.q("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review, m.reminders mrem, m.anniversary manniv
+                            FROM events e LEFT JOIN tags t ON t.event_id=e.id LEFT JOIN event_meta m ON m.event_id=e.id
                             WHERE e.deleted=0 AND (e.rrule IS NOT NULL OR (e.start <= ? AND COALESCE(e.end,e.start) >= ?))""",
                          (e.strftime("%Y-%m-%dT%H:%M"), s.strftime("%Y-%m-%d")))
         overrides = {(r["master_id"], r["original_start"]) for r in rows if r.get("master_id")}
@@ -267,8 +274,8 @@ class Service:
 
     def to_tag(self, limit=100):
         today = date.today().isoformat()
-        rows = self.db.q("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review
-                            FROM events e JOIN tags t ON t.event_id=e.id
+        rows = self.db.q("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review, m.reminders mrem, m.anniversary manniv
+                            FROM events e JOIN tags t ON t.event_id=e.id LEFT JOIN event_meta m ON m.event_id=e.id
                             WHERE e.deleted=0 AND t.needs_review=1 AND (e.rrule IS NOT NULL OR COALESCE(e.end,e.start) >= ?)
                             ORDER BY e.start LIMIT ?""", (today, limit))
         return [self._shape(r) for r in rows]
@@ -279,6 +286,7 @@ class Service:
         ds = d.isoformat()
         rows = self.db.q("SELECT * FROM chores WHERE active=1 ORDER BY profile_id, sort, title")
         done = {r["chore_id"]: r for r in self.db.q("SELECT * FROM completions WHERE date=?", (ds,))}
+        meta = {r["chore_id"]: r for r in self.db.q("SELECT * FROM chore_meta")}
         out = []
         for c in rows:
             if c["once_date"]:
@@ -287,7 +295,8 @@ class Service:
                 due = (c["days"] or "1111111")[dow] == "1" and (not c["start_date"] or c["start_date"] <= ds) \
                       and (not c["end_date"] or c["end_date"] >= ds)
             if due:
-                out.append(dict(c, done=c["id"] in done, date=ds))
+                m = meta.get(c["id"]) or {}
+                out.append(dict(c, done=c["id"] in done, date=ds, time=m.get("time"), grp=m.get("grp")))
         return out
 
     def toggle_chore(self, cid, d, done=None):
@@ -310,6 +319,17 @@ class Service:
 
     def balance(self, pid):
         return self.db.one("SELECT COALESCE(SUM(delta),0) s FROM ledger WHERE profile_id=?", (pid,))["s"]
+
+    def add_chores(self, d):
+        """Stock "Task": one chore row per assignee (stars/completions stay per person), linked by grp."""
+        pids = d.get("profile_ids") or [d.get("profile_id")]
+        grp = new_id() if len(pids) > 1 else None
+        out = []
+        for pid in pids:
+            ch = self.add_chore(dict(d, profile_id=pid))
+            self.db.x("INSERT OR REPLACE INTO chore_meta(chore_id,time,grp) VALUES(?,?,?)", (ch["id"], d.get("time"), grp))
+            out.append(dict(ch, time=d.get("time"), grp=grp))
+        return out
 
     def add_chore(self, d):
         cid = new_id()
@@ -358,7 +378,7 @@ def migrate_native(svc, since_days=60):
     """Copy eCalendar-only events (never in Google) into the shared Google calendar, keeping tags.
     Called once when switching from the fixture to Google. Returns count."""
     cutoff = (date.today() - timedelta(days=since_days)).isoformat()
-    rows = svc.db.q("""SELECT e.*, t.profiles tprof FROM events e LEFT JOIN tags t ON t.event_id=e.id
+    rows = svc.db.q("""SELECT e.*, t.profiles tprof FROM events e LEFT JOIN tags t ON t.event_id=e.id LEFT JOIN event_meta m ON m.event_id=e.id
                        WHERE e.origin='ecal-native' AND e.deleted=0 AND (e.rrule IS NOT NULL OR COALESCE(e.end,e.start) >= ?)""",
                     (cutoff,))
     n = 0

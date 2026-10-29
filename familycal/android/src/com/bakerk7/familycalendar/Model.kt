@@ -9,7 +9,8 @@ data class Profile(val id: String, val name: String, val color: Int, val emoji: 
 data class Ev(
     val id: String, val title: String, val allDay: Boolean, val start: String, val end: String,
     val profiles: List<String>, val recurring: Boolean, val needsTag: Boolean, val tagRule: String,
-    val seriesStart: String, val description: String, val cal: String
+    val seriesStart: String, val description: String, val cal: String,
+    val rrule: String = "", val reminders: List<Int> = emptyList(), val anniversary: Boolean = false
 ) {
     val date get() = start.take(10)
     val endDate get() = end.take(10).ifEmpty { date }
@@ -17,7 +18,9 @@ data class Ev(
     val endMin get() = if (allDay || end.length < 16) -1 else end.substring(11, 13).toInt() * 60 + end.substring(14, 16).toInt()
 }
 
-data class Chore(val id: String, val title: String, val emoji: String, val profile: String, val stars: Int, var done: Boolean)
+data class Chore(val id: String, val title: String, val emoji: String, val profile: String, val stars: Int, var done: Boolean,
+                 val days: String = "1111111", val time: String = "", val onceDate: String = "", val startDate: String = "", val grp: String = "")
+data class Cal(val id: String, val name: String, val writable: Boolean)
 data class Reward(val id: String, val title: String, val emoji: String, val cost: Int, val profile: String?)
 data class Item(val id: String, val text: String, var done: Boolean)
 data class FList(val id: String, val name: String, val emoji: String, val items: MutableList<Item>)
@@ -37,10 +40,13 @@ object Parse {
         Ev(o.s("id"), o.s("title"), o.optBoolean("all_day"), o.s("start"), o.s("end"),
             if (p == null) listOf("family") else (0 until p.length()).map { p.getString(it) },
             o.optBoolean("recurring"), o.optBoolean("needs_tag"), o.s("tag_rule"), o.s("series_start"),
-            o.s("description"), o.s("cal"))
+            o.s("description"), o.s("cal"), o.s("rrule"),
+            o.optJSONArray("reminders")?.let { r -> (0 until r.length()).map { r.optInt(it) } } ?: emptyList(), o.optBoolean("anniversary"))
     }
+    fun cals(a: JSONArray?) = a?.objs()?.map { Cal(it.s("id"), it.s("name"), it.optBoolean("writable", true)) } ?: emptyList()
     fun chores(a: JSONArray) = a.objs().map {
-        Chore(it.s("id"), it.s("title"), it.s("emoji"), it.s("profile_id"), it.optInt("stars"), it.optBoolean("done"))
+        Chore(it.s("id"), it.s("title"), it.s("emoji"), it.s("profile_id"), it.optInt("stars"), it.optBoolean("done"),
+            it.s("days").ifEmpty { "1111111" }, it.s("time"), it.s("once_date"), it.s("start_date"), it.s("grp"))
     }
     fun rewards(a: JSONArray) = a.objs().map {
         Reward(it.s("id"), it.s("title"), it.s("emoji"), it.optInt("cost"), it.s("profile_id").ifEmpty { null })

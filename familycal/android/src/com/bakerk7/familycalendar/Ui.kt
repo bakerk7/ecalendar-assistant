@@ -49,8 +49,10 @@ fun mix(c: Int, w: Float): Int { // blend toward white
 }
 
 /** Stock profile palette: strong colour + 70%-to-white pastel (matches #EE1B1B -> #FABBBB etc). */
-fun strong(p: Profile) = if (p.id == "family") C.SHARED else p.color
-fun pastel(p: Profile) = if (p.id == "family") Color.parseColor("#C0C8F5") else mix(p.color, .70f)
+/** Stock eCalendar colors: Jack is #4DBAFD on the tablet (server keeps its own color for the phone page). */
+private val JACK = Color.parseColor("#4DBAFD")
+fun strong(p: Profile) = when (p.id) { "family" -> C.SHARED; "jack" -> JACK; else -> p.color }
+fun pastel(p: Profile) = if (p.id == "family") Color.parseColor("#C0C8F5") else mix(strong(p), .70f)
 fun taskPastel(p: Profile) = mix(strong(p), .82f)
 
 fun round(fill: Int, r: Float, stroke: Int = 0, strokeW: Float = 0f): GradientDrawable =
@@ -126,7 +128,7 @@ fun drawAvatar(c: Canvas, p: Profile, bmp: Bitmap?, x: Float, y: Float, s: Float
     if (bmp != null) { c.drawBitmap(bmp, null, r, paint); return }
     paint.style = Paint.Style.FILL; paint.color = strong(p); c.drawOval(r, paint)
     paint.color = Color.WHITE; paint.textSize = s * .5f; paint.typeface = C.MED; paint.textAlign = Paint.Align.CENTER
-    c.drawText(p.name.take(1).uppercase(), x + s / 2, y + s * .68f, paint); paint.textAlign = Paint.Align.LEFT
+    c.drawText(if (p.id == "family") "S" else p.name.take(1).uppercase(), x + s / 2, y + s * .68f, paint); paint.textAlign = Paint.Align.LEFT
 }
 
 /** Tiny vector icons drawn with Paint (no vector-drawable inflation, works with software rendering). */
@@ -179,7 +181,8 @@ class Ico(private val kind: Int, private val color: Int, private val sizePx: Flo
     @Deprecated("") override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
 
-class IconView(ctx: Context, private val d: Drawable, private val sizePx: Int) : View(ctx) {
+class IconView(ctx: Context, private var d: Drawable, private val sizePx: Int) : View(ctx) {
+    fun setImage(n: Drawable) { d = n; invalidate() }
     override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(sizePx, sizePx)
     override fun onDraw(c: Canvas) { d.setBounds(0, 0, sizePx, sizePx); d.draw(c) }
 }
@@ -205,4 +208,21 @@ object Fmt {
     }
     fun hm(s: String) = if (s.length >= 16) clock(s.substring(11, 13).toInt() * 60 + s.substring(14, 16).toInt()) else ""
     fun hourLabel(h: Int) = "%02d:00 %s".format(if (h % 12 == 0) 12 else h % 12, if (h >= 12) "pm" else "am")
+}
+
+/** Stock blue pill toggle (drawn, no Switch inflation/animation). */
+class Toggle(ctx: Context, var on: Boolean, var enabled2: Boolean = true, val onChange: (Boolean) -> Unit = {}) : View(ctx) {
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG); private val r = RectF()
+    init { setOnClickListener { if (enabled2) { on = !on; invalidate(); onChange(on) } } }
+    fun set(v: Boolean) { on = v; invalidate() }
+    fun enable(v: Boolean) { enabled2 = v; invalidate() }
+    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(px(40), px(24))
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat(); val t = h * .1f
+        r.set(0f, t, w, h - t); p.style = Paint.Style.FILL
+        p.color = if (on) (if (enabled2) C.BLUE else mix(C.BLUE, .6f)) else Color.parseColor(if (enabled2) "#D9DCE2" else "#E9EBEF")
+        c.drawRoundRect(r, h / 2, h / 2, p)
+        p.color = Color.WHITE; val rad = (h - 2 * t) / 2 - fpx(2.5f)
+        c.drawCircle(if (on) w - h / 2 else h / 2, h / 2, rad, p)
+    }
 }

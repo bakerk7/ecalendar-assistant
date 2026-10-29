@@ -291,3 +291,36 @@ def test_native_events_survive_full_sync(env):
                 VALUES('n1','shared','Native only','','','2026-11-05','2026-11-05',1,'[]','ecal-native','x',0)""")
     assert svc.sync() >= 0
     assert svc.db.one("SELECT deleted FROM events WHERE id='n1'")["deleted"] == 0
+
+
+def test_phase2_meta_chores_lists(tmp_path):
+    from fastapi.testclient import TestClient
+    from famcal.app import create_app
+    from famcal.core import Service
+    from famcal.db import DB
+    from famcal.sources import FixtureSource, to_google
+    svc = Service(DB(":memory:"), FixtureSource(str(tmp_path / "fx.json")))
+    c = TestClient(create_app(svc, api_key="", data_dir=str(tmp_path), start_sync=False))
+    ev = c.post("/api/events", json={"title": "Bday", "start": "2026-11-02", "all_day": True,
+                                      "rrule": "FREQ=YEARLY", "reminders": [1440], "anniversary": True}).json()
+    assert ev["reminders"] == [1440] and ev["anniversary"] and ev["rrule"] == "FREQ=YEARLY"
+    ev = c.patch(f"/api/events/{ev['id']}", json={"reminders": [10, 60]}).json()
+    assert ev["reminders"] == [10, 60] and ev["anniversary"]
+    g = to_google({"title": "x", "reminders": [10], "anniversary": True, "tags": ["jack"]})
+    assert g["reminders"]["overrides"][0]["minutes"] == 10
+    assert g["extendedProperties"]["private"]["famcal_anniversary"] == "1"
+    out = c.post("/api/chores", json={"title": "Feed dog", "profile_ids": ["jack", "liv"], "stars": 3,
+                                      "days": "1010100", "time": "07:30", "start_date": "2026-11-01"}).json()
+    assert len(out) == 2 and out[0]["grp"] == out[1]["grp"]
+    h = c.get("/api/home", params={"start": "2026-11-02", "end": "2026-11-03", "chores_date": "2026-11-02"}).json()
+    mine = [x for x in h["chores"] if x["title"] == "Feed dog"]
+    assert len(mine) == 2 and mine[0]["time"] == "07:30" and "calendars" in h
+    h = c.get("/api/home", params={"start": "2026-11-03", "end": "2026-11-03", "chores_date": "2026-11-03"}).json()
+    assert not [x for x in h["chores"] if x["title"] == "Feed dog"]
+    r = c.patch(f"/api/chores/{out[0]['id']}", json={"time": "08:00", "stars": 2}).json()
+    assert r["time"] == "08:00" and r["stars"] == 2
+    ls = c.post("/api/lists", json={"name": "Trip"}).json()
+    lid = [l for l in ls if l["name"] == "Trip"][0]["id"]
+    ls = c.patch(f"/api/lists/{lid}", json={"name": "Trip 2"}).json()
+    assert any(l["name"] == "Trip 2" for l in ls)
+    assert c.delete(f"/api/lists/{lid}").json()["ok"]

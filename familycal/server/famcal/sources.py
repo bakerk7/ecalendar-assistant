@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 TAG_KEY = "famcalProfiles"
+ANNIV_KEY = "famcal_anniversary"
 TZ = ZoneInfo(os.environ.get("TZ_NAME", "America/Chicago"))
 
 
@@ -146,6 +147,8 @@ def from_google(g):
         "master_id": g.get("recurringEventId"),
         "original_start": _g_time(g["originalStartTime"])[0] if g.get("originalStartTime") else None,
         "tags": [t for t in tags.split(",") if t] if tags is not None else None,
+        "reminders": [int(o.get("minutes", 0)) for o in ((g.get("reminders") or {}).get("overrides") or [])],
+        "anniversary": priv.get(ANNIV_KEY) == "1",
     }
 
 
@@ -165,8 +168,16 @@ def to_google(ev, tzname=None):
             body["end"] = {"dateTime": (ev.get("end") or ev["start"]) + ":00", "timeZone": tzname}
     if "rrule" in ev:
         body["recurrence"] = ["RRULE:" + ev["rrule"]] if ev.get("rrule") else []
+    priv = {}
     if ev.get("tags") is not None:
-        body["extendedProperties"] = {"private": {TAG_KEY: ",".join(ev["tags"])}}
+        priv[TAG_KEY] = ",".join(ev["tags"])
+    if "anniversary" in ev:
+        priv[ANNIV_KEY] = "1" if ev["anniversary"] else "0"
+    if priv:
+        body["extendedProperties"] = {"private": priv}
+    if "reminders" in ev:   # minutes before start; [] = no reminder (Google: popup overrides)
+        body["reminders"] = {"useDefault": False,
+                             "overrides": [{"method": "popup", "minutes": int(m)} for m in (ev["reminders"] or [])][:5]}
     return body
 
 

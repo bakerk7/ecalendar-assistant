@@ -39,12 +39,14 @@ class MainActivity : Activity(), Host {
     private var chores = listOf<Chore>()
     private var rewards = listOf<Reward>()
     private var lists = listOf<FList>()
+    private var cals = listOf<Cal>()
     private var weather: Weather? = null
     private var toTag = 0
     private var offline = false
     private var page = "cal"            // cal | chores | rewards | lists
     private var mode = "week"           // schedule | day | week | month
     private var anchor = D.today()
+    private var choresDate = D.today()
     private val filter = linkedSetOf<String>()
     private var forcedNight = false
     private var wakeUntil = 0L
@@ -57,6 +59,7 @@ class MainActivity : Activity(), Host {
     private lateinit var timeTv: TextView
     private lateinit var timeDiv: View
     private lateinit var tempTv: TextView
+    private lateinit var wxIcon: View
     private lateinit var tagPill: TextView
     private lateinit var pills: LinearLayout
     private lateinit var profBar: LinearLayout
@@ -74,8 +77,9 @@ class MainActivity : Activity(), Host {
         C.K = resources.displayMetrics.widthPixels.coerceAtLeast(resources.displayMetrics.heightPixels) / 1920f
         Img.ctx = this
         api = Api(this)
+        mode = prefs.getString("default_view", "week")!!
         takeConfig(intent)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         window.setBackgroundDrawable(null)
         build()
@@ -127,7 +131,7 @@ class MainActivity : Activity(), Host {
         timeTv = text("", 34f, C.INK); top.addView(timeTv)
         top.addView(IconView(this, Ico(Ico.REFRESH, Color.parseColor("#8A909B"), 30f, 2.2f), px(30)).apply {
             setOnClickListener { refresh(); toast("Refreshing…") } }, lp(px(30), px(30)).apply { setMargins(px(30), 0, px(30), 0) })
-        top.addView(BmpView(this, Img.get("wx"), px(42)))
+        wxIcon = BmpView(this, Img.get("wx"), px(42)); top.addView(wxIcon)
         tempTv = text("", 34f, C.INK).apply { setPadding(px(14), 0, 0, 0) }; top.addView(tempTv)
         tagPill = text("", 16f, Color.WHITE, C.MED).apply {
             background = round(C.RED, 16f); setPadding(px(14), px(7), px(14), px(7)); visibility = View.GONE
@@ -155,7 +159,7 @@ class MainActivity : Activity(), Host {
 
         night = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK); visibility = View.GONE; isClickable = true
-            setOnClickListener { wakeUntil = System.currentTimeMillis() + 60_000; forcedNight = false; updateClock() }
+            setOnClickListener { wakeUntil = System.currentTimeMillis() + 60_000; forcedNight = false; lastTouch = System.currentTimeMillis(); updateClock() }
         }
         nightClock = text("", 160f, Color.parseColor("#3A3F4A"), C.REG).apply { gravity = Gravity.CENTER }
         night.addView(nightClock, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
@@ -175,7 +179,7 @@ class MainActivity : Activity(), Host {
         }
         item("home", "icon_home_home") { page = "cal"; mode = "week"; anchor = D.today(); render() }
         item("cal", "icon_home_cal") { page = "cal"; if (mode == "week" && anchor == D.today()) mode = "month"; render() }
-        item("chores", "icon_home_chore") { page = "chores"; render() }
+        item("chores", "icon_home_chore") { page = "chores"; if (choresDate != D.today()) { choresDate = D.today(); lastJson = 0; refresh() }; render() }
         item("rewards", "icon_home_reward") { page = "rewards"; render() }
         item("lists", "icon_home_list") { page = "lists"; render() }
         rail.addView(View(this), lp(1, 0, 1f))
@@ -205,7 +209,7 @@ class MainActivity : Activity(), Host {
 
     private fun refresh() {
         val (s, e) = range()
-        api.get("/api/home?start=$s&end=$e", { txt ->
+        api.get("/api/home?start=$s&end=$e&chores_date=$choresDate", { txt ->
             val hsh = txt.hashCode(); offline = false
             if (hsh == lastJson && events.isNotEmpty()) return@get       // nothing changed: skip the redraw
             try { apply(JSONObject(txt)); lastJson = hsh; api.saveCache(txt); render() } catch (_: Exception) {}
@@ -219,6 +223,7 @@ class MainActivity : Activity(), Host {
         chores = Parse.chores(j.getJSONArray("chores"))
         rewards = Parse.rewards(j.getJSONArray("rewards"))
         lists = Parse.lists(j.getJSONArray("lists"))
+        cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
         chipCache.clear()
@@ -239,7 +244,7 @@ class MainActivity : Activity(), Host {
             out += Chip(e.title, e.allDay || multi, if (multi) -1 else e.startMin, e.endMin, ps, ev = e)
         }
         out.sortWith(compareBy({ !it.allDay }, { it.startMin }, { it.title }))
-        if (date == D.today()) for (c in chores) {
+        if (date == choresDate && prefs.getBoolean("chores_on_cal", true)) for (c in chores) {
             if (filter.isNotEmpty() && c.profile !in filter) continue
             out += Chip(c.title, true, -1, -1, listOf(prof(c.profile)), chore = c)
         }
@@ -261,11 +266,12 @@ class MainActivity : Activity(), Host {
         tagPill.visibility = if (toTag > 0) View.VISIBLE else View.GONE
         tagPill.text = "$toTag to tag"
         tempTv.text = weather?.let { "${it.temp}°F" } ?: "--°F"
+        val wxOn = prefs.getBoolean("show_weather", true); tempTv.visibility = if (wxOn) View.VISIBLE else View.GONE; wxIcon.visibility = tempTv.visibility
         renderPills()
         val onCal = page == "cal"
         profBar.visibility = if (onCal) View.VISIBLE else View.GONE
         band.visibility = profBar.visibility
-        fab.visibility = if (page == "rewards") View.GONE else View.VISIBLE
+        fab.visibility = if (page == "rewards" || !prefs.getBoolean("show_fab", true)) View.GONE else View.VISIBLE
         if (onCal) renderProfiles()
         pageHost.removeAllViews()
         val v: View = when (page) {
@@ -289,6 +295,9 @@ class MainActivity : Activity(), Host {
             add(pill(mode.replaceFirstChar { it.uppercase() }, chevron = true) { viewMenu(it) })
             if (mode != "schedule") add(rangePill())
             add(pill("Filter", chevron = true) { filterMenu(it) })
+        } else if (page == "chores") {
+            add(pill("More", chevron = true) { moreMenu() })
+            add(choresDatePill())
         } else {
             add(pill("More", chevron = true) { moreMenu() })
             add(pill(if (page == "lists") "${Fmt.DOWL[D.dow(D.today())]}, ${Fmt.MONTH[D.month(D.today())]} ${D.day(D.today())}"
@@ -310,6 +319,17 @@ class MainActivity : Activity(), Host {
         box.addView(IconView(this, Ico(Ico.RIGHT, C.INK, 30f, 2f), px(30)).apply { setOnClickListener { move(1) } })
         box.layoutParams = lp(WRAP, px(42))
         return box
+    }
+
+    /** Stock chores date arrows: ‹ Thursday, October 29 › (tap the label to jump back to today). */
+    private fun choresDatePill(): View {
+        val box = hbox(this).apply { background = round(Color.WHITE, 21f, C.PILL, 2f); setPadding(px(6), 0, px(6), 0) }
+        fun go(d: String) { choresDate = d; chores = emptyList(); lastJson = 0; render(); refresh() }
+        box.addView(IconView(this, Ico(Ico.LEFT, C.INK, 30f, 2f), px(30)).apply { setOnClickListener { go(D.add(choresDate, -1)) } })
+        val lbl = if (choresDate == D.today()) "Today" else "${Fmt.DOWL[D.dow(choresDate)]}, ${Fmt.MONTH[D.month(choresDate)]} ${D.day(choresDate)}"
+        box.addView(text(lbl, 16f).apply { gravity = Gravity.CENTER; minWidth = px(80); setPadding(px(10), 0, px(10), 0); setOnClickListener { go(D.today()) } })
+        box.addView(IconView(this, Ico(Ico.RIGHT, C.INK, 30f, 2f), px(30)).apply { setOnClickListener { go(D.add(choresDate, 1)) } })
+        box.layoutParams = lp(WRAP, px(42)); return box
     }
 
     private fun renderProfiles() {
@@ -386,12 +406,14 @@ class MainActivity : Activity(), Host {
     }
 
     private fun choreTile(c: Chore, p: Profile): View {
-        val tile = vbox(this).apply { background = round(mix(strong(p), .76f), 8f); setOnClickListener { toggleChore(c) }; alpha = if (c.done) .55f else 1f }
+        val tile = vbox(this).apply { background = round(mix(strong(p), .76f), 8f); setOnClickListener { toggleChore(c) }; alpha = if (c.done) .55f else 1f
+            setOnLongClickListener { editTask(c); true } }
         tile.addView(text(c.emoji.ifEmpty { "⭐" }, 44f).apply { gravity = Gravity.CENTER; setPadding(0, px(18), 0, px(14)) }, lp(MATCH, WRAP))
         val b = hbox(this).apply { background = round(mix(strong(p), .84f), 8f); setPadding(px(14), px(12), px(14), px(12)) }
         val tcol = vbox(this)
         tcol.addView(text(c.title, 17f, C.INK))
-        tcol.addView(text(if (c.stars > 0) "All day · +${c.stars}" else "All day", 13f, C.MUT).apply { setPadding(0, px(6), 0, 0) })
+        val whenS = if (c.time.length >= 5) Fmt.clock(mins(c.time)) else "All day"
+        tcol.addView(text(if (c.stars > 0) "$whenS · +${c.stars}" else whenS, 13f, C.MUT).apply { setPadding(0, px(6), 0, 0) })
         b.addView(tcol, lp(0, WRAP, 1f))
         b.addView(IconView(this, if (c.done) Ico(Ico.CHECK, Color.WHITE, 24f, 2.4f) else Ico(Ico.CHECK, Color.TRANSPARENT, 24f), px(24)).apply {
             background = if (c.done) oval(strong(p)) else oval(Color.WHITE, Color.parseColor("#C9CED6"), 1f) })
@@ -401,7 +423,7 @@ class MainActivity : Activity(), Host {
 
     private fun toggleChore(c: Chore) {
         c.done = !c.done; chipCache.clear(); render()
-        api.post("/api/chores/${c.id}/toggle", JSONObject().put("done", c.done), { txt ->
+        api.post("/api/chores/${c.id}/toggle", JSONObject().put("done", c.done).put("date", choresDate), { txt ->
             val st = JSONObject(txt).optInt("stars")
             profiles = profiles.map { if (it.id == c.profile) it.copy(stars = st) else it }; pmap = profiles.associateBy { it.id }; people = order(profiles)
             if (c.done && c.stars > 0) toast("+${c.stars} stars for ${prof(c.profile).name}!")
@@ -453,6 +475,8 @@ class MainActivity : Activity(), Host {
             head.addView(text(l.name.take(1).uppercase(), 20f, Color.WHITE, C.MED).apply { gravity = Gravity.CENTER; background = oval(c) }, lp(px(40), px(40)))
             head.addView(text(l.name, 20f, C.INK, C.MED).apply { setPadding(px(10), 0, 0, 0) }, lp(0, WRAP, 1f))
             head.addView(text("${l.items.count { !it.done }}", 15f, C.MUT))
+            head.addView(IconView(this, Ico(Ico.PENCIL, C.MUT, 22f, 1.6f), px(22)).apply { setOnClickListener { listMenu(it, l) } }, lp(px(22), px(22)).apply { leftMargin = px(14) })
+            head.setOnLongClickListener { listMenu(it, l); true }
             col.addView(head)
             val add = EditText(this).apply {
                 hint = "+ Add item"; setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f)); setSingleLine()
@@ -486,7 +510,42 @@ class MainActivity : Activity(), Host {
             }
             cols.addView(col, lp(0, MATCH, 1f).apply { if (i > 0) leftMargin = px(14) })
         }
+        // stock "+ Add List" column
+        if (lists.size < 6) {
+            val col = vbox(this).apply { background = round(C.FIELD, 10f); setPadding(px(14), px(16), px(14), px(14)) }
+            col.addView(text("+ Add List", 18f, C.BLUE, C.MED).apply { setPadding(px(4), px(8), 0, px(8)); setOnClickListener { nameList(null) } })
+            cols.addView(col, lp(0, MATCH, 1f).apply { if (lists.isNotEmpty()) leftMargin = px(14) })
+        }
         return cols
+    }
+
+    private fun listMenu(a: View, l: FList) = dropdown(a, px(200)) { b ->
+        b.addView(menuRow("Rename", false) { nameList(l) })
+        b.addView(menuRow("Delete list", false) {
+            if (lists.size <= 1) { toast("One list has to stay active."); return@menuRow }
+            confirm("Delete “${l.name}”?", "This removes the list and its ${l.items.size} item(s).", "Delete") {
+                api.call("DELETE", "/api/lists/${l.id}", null, { toast("Deleted"); refresh() }, { toast(it) }) } })
+    }
+
+    /** Create (l == null) or rename a list: small stock-style card with one field. */
+    private fun nameList(l: FList?) {
+        val s = scrim()
+        val c = card(px(520)).apply { setPadding(px(28), px(24), px(28), px(24)) }
+        val h = hbox(this); h.addView(text(if (l == null) "Add List" else "Rename List", 22f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
+        val et = EditText(this).apply { hint = "List name"; setText(l?.name ?: ""); setSingleLine(); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(17f))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            background = round(C.FIELD, 8f); setPadding(px(14), px(14), px(14), px(14)) }
+        c.addView(et, lp(MATCH, WRAP).apply { topMargin = px(18) })
+        val b = hbox(this, Gravity.END).apply { setPadding(0, px(22), 0, 0) }
+        b.addView(greyButton("Cancel") { hideKb(et); closeOverlay() })
+        b.addView(blueButton("Save") {
+            val n = et.text.toString().trim(); if (n.isEmpty()) { toast("Add a name"); return@blueButton }
+            hideKb(et); closeOverlay()
+            if (l == null) api.post("/api/lists", JSONObject().put("name", n), { refresh() }, { toast(it) })
+            else api.call("PATCH", "/api/lists/${l.id}", JSONObject().put("name", n), { refresh() }, { toast(it) })
+        }.margins(px(12)))
+        c.addView(b, lp(MATCH, WRAP)); s.addView(c)
+        et.requestFocus()
     }
 
     // ================================================================= overlays (in-tree, no Dialog windows)
@@ -547,7 +606,7 @@ class MainActivity : Activity(), Host {
             gravity = Gravity.CENTER; background = pressable(oval(Color.WHITE, Color.parseColor("#E1E4EA"), 1f), oval(C.FIELD, Color.parseColor("#E1E4EA"), 1f))
             setOnClickListener { closeOverlay(); f() } }, FrameLayout.LayoutParams(px(64), px(64), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(39), px(bottom)) })
         bubble("Event", 230) { editEvent(null, if (page == "cal" && mode == "day") anchor else D.today()) }
-        bubble("Task", 149) { toast("Add chores from the phone page") }
+        bubble("Task", 149) { editTask(null) }
         s.addView(FrameLayout(this).apply { background = oval(C.FAB); setOnClickListener { closeOverlay() }
             addView(IconView(context, Ico(Ico.CLOSE, Color.WHITE, 26f, 2.2f), px(26)), FrameLayout.LayoutParams(px(26), px(26), Gravity.CENTER)) },
             FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57)) })
@@ -575,16 +634,61 @@ class MainActivity : Activity(), Host {
 
     private fun closeX() = IconView(this, Ico(Ico.CLOSE, C.INK, 30f, 2.2f), px(30)).apply { setOnClickListener { closeOverlay() } }
 
+    /** Stock Sleep Mode card: schedule switch, days + From/To, inactivity, screen style; Sleep Now / Save. */
     private fun sleepCard() {
         val s = scrim()
-        val c = card(px(520)).apply { setPadding(px(28), px(24), px(28), px(24)) }
+        val c = card(px(500)).apply { setPadding(px(34), px(30), px(34), px(30)) }
         val h = hbox(this); h.addView(text("Sleep Mode", 24f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
-        c.addView(text("Screen goes dark ${prefs.getString("sleep_start", "21:30")} – ${prefs.getString("sleep_end", "06:30")}. Tap the screen to wake it for a minute.", 16f, C.MUT, lines = 3).apply { setPadding(0, px(16), 0, px(22)) })
-        val b = hbox(this, Gravity.END)
-        b.addView(greyButton("Edit times") { closeOverlay(); settings() })
-        b.addView(blueButton("Sleep now") { closeOverlay(); goNight() }.margins(px(12)))
-        c.addView(b, lp(MATCH, WRAP)); s.addView(c)
+        c.addView(text("Sleep mode dims the screen between scheduled times. Tap the screen at any time to wake it for a minute.", 14f, C.MUT, lines = 3).apply { setPadding(0, px(18), 0, px(12)) })
+        var on = prefs.getBoolean("sleep_on", true)
+        val days = StringBuilder(prefs.getString("sleep_days", "1111111")!!)
+        var a = mins(prefs.getString("sleep_start", "21:30")).takeIf { it >= 0 } ?: (21 * 60 + 30)
+        var b = mins(prefs.getString("sleep_end", "06:30")).takeIf { it >= 0 } ?: (6 * 60 + 30)
+        var idle = prefs.getBoolean("sleep_idle", false); var idleMin = prefs.getInt("sleep_idle_min", 10)
+        var dim = prefs.getString("sleep_dim", "clock")!!
+        c.addView(switchRow(-1, "Sleep Mode Schedule", on) { on = it }.first, lp(MATCH, WRAP))
+        c.addView(text("Schedule", 15f).apply { setPadding(0, px(18), 0, px(10)) })
+        val sb = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(12), px(12), px(12), px(12)) }
+        val dr = hbox(this)
+        fun drawDays() { dr.removeAllViews()
+            for (i in listOf(6, 0, 1, 2, 3, 4, 5)) { val o = days[i] == '1'
+                dr.addView(text(Fmt.DOW[i], 13f, if (o) Color.WHITE else C.INK).apply { gravity = Gravity.CENTER; background = round(if (o) C.BLUE else Color.WHITE, 14f)
+                    setOnClickListener { days.setCharAt(i, if (o) '0' else '1'); drawDays() } }, lp(0, px(30), 1f).apply { rightMargin = px(4) }) } }
+        drawDays(); sb.addView(dr, lp(MATCH, WRAP))
+        val tr = hbox(this).apply { setPadding(0, px(10), 0, 0) }
+        fun tbox(label: String, get: () -> Int, set: (Int) -> Unit): TextView {
+            val t = text("$label   ${Fmt.clock(get())}", 15f).apply { gravity = Gravity.CENTER; background = round(Color.WHITE, 6f)
+                setOnClickListener { v -> TimePickerDialog(this@MainActivity, { _, hh, mm -> set(hh * 60 + mm); (v as TextView).text = "$label   ${Fmt.clock(get())}" }, get() / 60, get() % 60, false).show() } }
+            return t }
+        tr.addView(tbox("From", { a }) { a = it }, lp(0, px(44), 1f))
+        tr.addView(tbox("To", { b }) { b = it }, lp(0, px(44), 1f).apply { leftMargin = px(10) })
+        sb.addView(tr, lp(MATCH, WRAP)); c.addView(sb, lp(MATCH, WRAP))
+        // screen style while asleep
+        c.addView(text("While asleep", 15f).apply { setPadding(0, px(18), 0, px(4)) })
+        val dl = vbox(this); val DIM = listOf("clock" to "Dim with clock", "black" to "Black screen")
+        fun drawDim() = choice(dl, DIM.map { it.second }, DIM.indexOfFirst { it.first == dim }.coerceAtLeast(0)) { i -> dim = DIM[i].first; drawDimLater() }
+        dimFn = { drawDim() }; drawDim(); dl.background = round(C.FIELD, 8f); dl.setPadding(px(8), px(2), px(8), px(8))
+        c.addView(dl, lp(MATCH, WRAP))
+        val ir = hbox(this).apply { setPadding(0, px(18), 0, 0) }
+        ir.addView(text("Sleep mode after inactivity", 15f), lp(0, WRAP, 1f))
+        val im = text("$idleMin min", 15f, C.BLUE).apply { setPadding(px(10), 0, px(14), 0)
+            setOnClickListener { idleMin = when (idleMin) { 5 -> 10; 10 -> 15; 15 -> 30; 30 -> 60; else -> 5 }; text = "$idleMin min" } }
+        ir.addView(im); ir.addView(Toggle(this, idle) { idle = it })
+        c.addView(ir, lp(MATCH, WRAP))
+        val bb = hbox(this).apply { setPadding(0, px(30), 0, 0) }
+        bb.addView(text("Sleep Now", 15f, C.BLUE).apply { gravity = Gravity.CENTER; background = round(C.FIELD, 22f); setOnClickListener { closeOverlay(); goNight() } }, lp(0, px(46), 1f))
+        bb.addView(blueButton("Save") {
+            prefs.edit().putBoolean("sleep_on", on).putString("sleep_days", days.toString())
+                .putString("sleep_start", "%02d:%02d".format(a / 60, a % 60)).putString("sleep_end", "%02d:%02d".format(b / 60, b % 60))
+                .putBoolean("sleep_idle", idle).putInt("sleep_idle_min", idleMin).putString("sleep_dim", dim).apply()
+            closeOverlay(); lastTouch = System.currentTimeMillis(); updateClock(); toast("Sleep schedule saved")
+        }.apply { gravity = Gravity.CENTER }, lp(px(110), px(46)).apply { leftMargin = px(12) })
+        c.addView(bb, lp(MATCH, WRAP)); s.addView(c)
     }
+    private var dimFn: () -> Unit = {}
+    private fun drawDimLater() = ui.post { dimFn() }
+    private var lastTouch = System.currentTimeMillis()
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean { lastTouch = System.currentTimeMillis(); return super.dispatchTouchEvent(ev) }
     private fun goNight() { forcedNight = true; wakeUntil = 0; updateClock() }
 
     private fun confirm(title: String, msg: String, okLabel: String, ok: () -> Unit) {
@@ -660,8 +764,12 @@ class MainActivity : Activity(), Host {
         val c = card(px(560)).apply { setPadding(px(26), px(26), px(26), px(22)) }
         val h = hbox(this); h.addView(text("${ch.emoji} ${ch.title}", 24f, C.INK, C.BOLD, 2), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
         c.addView(infoRow(Ico.PERSON, hbox(this).apply { addView(Avatar(context, p, px(26))); addView(text(p.name, 15f).apply { setPadding(px(8), 0, 0, 0) }) }))
-        c.addView(infoRow(Ico.CLOCK, text("Today · All day" + if (ch.stars > 0) " · ${ch.stars} stars" else "", 15f)))
-        val b = hbox(this, Gravity.END).apply { setPadding(0, px(24), 0, 0) }
+        val dayS = if (choresDate == D.today()) "Today" else D.short(choresDate)
+        val rep = if (ch.onceDate.isNotEmpty()) "Once" else if (ch.days == "1111111") "Every day" else (0..6).filter { ch.days[it] == '1' }.joinToString(",") { Fmt.DOW[it] }
+        c.addView(infoRow(Ico.CLOCK, text("$dayS · " + (if (ch.time.length >= 5) Fmt.clock(mins(ch.time)) else "All day") + if (ch.stars > 0) " · ${ch.stars} stars" else "", 15f)))
+        c.addView(infoRow(Ico.REPEAT, text(rep, 15f)))
+        val b = hbox(this, Gravity.CENTER_VERTICAL or Gravity.END).apply { setPadding(0, px(24), 0, 0) }
+        b.addView(IconView(this, Ico(Ico.PENCIL, C.INK, 28f, 1.8f), px(28)).apply { setOnClickListener { closeOverlay(); editTask(ch) } }, lp(px(28), px(28)).apply { rightMargin = px(30) })
         b.addView(blueButton(if (ch.done) "Mark not done" else "Mark done") { closeOverlay(); toggleChore(ch) })
         c.addView(b, lp(MATCH, WRAP)); s.addView(c)
     }
@@ -677,22 +785,65 @@ class MainActivity : Activity(), Host {
 
     private fun field(tv: View) = tv.apply { background = round(C.FIELD, 8f) }
 
-    /** Stock "Add Event" right-hand sheet. */
+    // ---------- shared sheet widgets (stock grey field boxes)
+    private fun fbox(): LinearLayout = hbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
+    private fun switchRow(icon: Int, label: String, on: Boolean, enabled: Boolean = true, f: (Boolean) -> Unit): Pair<LinearLayout, Toggle> {
+        val r = fbox()
+        if (icon >= 0) r.addView(IconView(this, Ico(icon, if (enabled) C.INK else C.MUT2, 22f, 1.6f), px(22)))
+        val l = text(label, 16f, if (enabled) C.INK else C.MUT2).apply { setPadding(px(if (icon >= 0) 10 else 0), 0, 0, 0) }
+        r.addView(l, lp(0, WRAP, 1f))
+        val t = Toggle(this, on, enabled, f); r.addView(t)
+        r.setOnClickListener { t.performClick() }
+        return r to t
+    }
+    private fun radioDot(on: Boolean) = IconView(this, Ico(Ico.CHECK, if (on) Color.WHITE else Color.TRANSPARENT, 22f, 2.2f), px(22)).apply {
+        background = if (on) oval(C.BLUE) else oval(Color.WHITE, Color.parseColor("#C9CED6"), 1.5f) }
+    /** Inline single-choice list (stock expanding picker; no popup window). */
+    private fun choice(host: LinearLayout, opts: List<String>, sel: Int, pick: (Int) -> Unit) {
+        host.removeAllViews()
+        for ((i, o) in opts.withIndex()) {
+            val r = hbox(this).apply { background = round(Color.WHITE, 8f); setPadding(px(14), px(12), px(14), px(12)); setOnClickListener { pick(i) } }
+            r.addView(text(o, 15f), lp(0, WRAP, 1f)); r.addView(radioDot(i == sel))
+            host.addView(r, lp(MATCH, WRAP).apply { topMargin = px(6) })
+        }
+    }
+    private val REM_MIN = intArrayOf(-1, 0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080)
+    private fun remLabel(m: Int) = when { m < 0 -> "None"; m == 0 -> "On time"; m < 60 -> "$m minutes before"; m == 60 -> "1 hour before"
+        m < 1440 -> "${m / 60} hours before"; m == 1440 -> "1 day before"; m == 10080 -> "1 week before"; else -> "${m / 1440} days before" }
+    private val FREQ = listOf("DAILY" to "Day", "WEEKLY" to "Week", "MONTHLY" to "Month", "YEARLY" to "Year")
+
+    /** Stock "Add Event" right-hand sheet: title, start/end, all day, profile, reminder, synced calendar, anniversary, repeat, description. */
     private fun editEvent(e: Ev?, day: String) {
         val s = scrim()
-        val sheet = vbox(this).apply { setBackgroundColor(Color.WHITE); isClickable = true; setPadding(px(26), px(26), px(26), px(26)) }
-        val h = hbox(this); h.addView(text(if (e == null) "Add Event" else "Edit Event", 26f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); sheet.addView(h)
+        val outer = vbox(this).apply { setBackgroundColor(Color.WHITE); isClickable = true; setPadding(px(26), px(26), px(26), px(22)) }
+        val h = hbox(this); h.addView(text(if (e == null) "Add Event" else "Edit Event", 26f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); outer.addView(h)
+        val sheet = vbox(this).apply { setPadding(0, 0, 0, px(10)) }
+        outer.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(sheet) }, lp(MATCH, 0, 1f).apply { topMargin = px(20) })
         val title = EditText(this).apply {
             hint = "Title"; setText(e?.title ?: ""); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(18f)); setSingleLine()
+            filters = arrayOf(android.text.InputFilter.LengthFilter(300))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; setPadding(px(16), px(18), px(16), px(18))
         }
-        sheet.addView(field(title), lp(MATCH, WRAP).apply { topMargin = px(26) })
+        sheet.addView(field(title), lp(MATCH, WRAP))
         var date = e?.date ?: day
         var endDate = e?.endDate ?: date
         var allDay = e?.allDay ?: false
         val now = Calendar.getInstance()
         var sMin = e?.startMin?.takeIf { it >= 0 } ?: minOf((now.get(Calendar.HOUR_OF_DAY) + 1) * 60, 22 * 60)
         var eMin = e?.endMin?.takeIf { it > 0 } ?: minOf(sMin + 60, 23 * 60 + 59)
+        // repeat state parsed from RRULE (FREQ/INTERVAL/UNTIL; anything fancier is kept untouched unless edited)
+        val rr = (e?.rrule ?: "").split(";").mapNotNull { it.split("=").takeIf { p -> p.size == 2 }?.let { p -> p[0].uppercase() to p[1] } }.toMap()
+        var repOn = rr.containsKey("FREQ") && !(e?.anniversary ?: false)
+        var freq = FREQ.indexOfFirst { it.first == rr["FREQ"] }.coerceAtLeast(0)
+        var every = rr["INTERVAL"]?.toIntOrNull() ?: 1
+        var until = rr["UNTIL"]?.take(8)?.let { "${it.take(4)}-${it.substring(4, 6)}-${it.substring(6, 8)}" } ?: ""
+        val fancy = rr.keys.any { it !in setOf("FREQ", "INTERVAL", "UNTIL", "WKST") }
+        var repTouched = false
+        var anniv = e?.anniversary ?: false
+        var rem = e?.reminders?.firstOrNull() ?: if (e == null) prefs.getInt("def_reminder", 0) else -1
+        val writable = cals.filter { it.writable }
+        var cal = e?.cal ?: (writable.firstOrNull { it.id == "shared" } ?: writable.firstOrNull())?.id ?: "shared"
+
         fun box(label: String): Pair<LinearLayout, TextView> {
             val b = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(10), px(14), px(12)) }
             if (label.isNotEmpty()) b.addView(text(label, 12f, C.MUT))
@@ -700,50 +851,209 @@ class MainActivity : Activity(), Host {
         }
         val (sdB, sdT) = box("Start"); val (stB, stT) = box(""); val (edB, edT) = box("End"); val (etB, etT) = box("")
         fun dl(d: String) = "${Fmt.DOW[D.dow(d)]}, ${D.short(d)}"
+        lateinit var annT: Toggle; lateinit var repT: Toggle
+        val repBox = vbox(this)
+        lateinit var drawRep: () -> Unit
         fun upd() { sdT.text = dl(date); edT.text = dl(endDate); stT.text = Fmt.clock(sMin); etT.text = Fmt.clock(eMin)
-            stB.visibility = if (allDay) View.INVISIBLE else View.VISIBLE; etB.visibility = stB.visibility }
-        fun pickDate(cur: String, set: (String) -> Unit) { val c = D.cal(cur)
-            DatePickerDialog(this, { _, y, m, d -> set("%04d-%02d-%02d".format(y, m + 1, d)); upd() }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show() }
+            stB.visibility = if (allDay) View.INVISIBLE else View.VISIBLE; etB.visibility = stB.visibility
+            annT.enable(allDay); if (!allDay && anniv) { anniv = false; annT.set(false) } }
+        fun pickDate(cur: String, set: (String) -> Unit) { val c = D.cal(cur.ifEmpty { date })
+            DatePickerDialog(this, { _, y, m, d -> set("%04d-%02d-%02d".format(y, m + 1, d)); upd(); drawRep() }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show() }
         sdB.setOnClickListener { pickDate(date) { date = it; if (endDate < date) endDate = date } }
         edB.setOnClickListener { pickDate(endDate) { endDate = if (it < date) date else it } }
         stB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> val dur = eMin - sMin; sMin = hh * 60 + mm; eMin = (sMin + maxOf(dur, 15)).coerceAtMost(23 * 60 + 59); upd() }, sMin / 60, sMin % 60, false).show() }
         etB.setOnClickListener { TimePickerDialog(this, { _, hh, mm -> eMin = hh * 60 + mm; upd() }, eMin / 60, eMin % 60, false).show() }
         for ((a, b) in listOf(sdB to stB, edB to etB)) {
             val r = hbox(this); r.addView(a, lp(0, px(62), 1f)); r.addView(b, lp(0, px(62), 1f).apply { leftMargin = px(14) })
-            sheet.addView(r, lp(MATCH, WRAP).apply { topMargin = px(14) })
+            sheet.addView(r, lp(MATCH, WRAP).apply { topMargin = px(12) })
         }
-        val ad = hbox(this).apply { setPadding(0, px(18), 0, px(6)) }
-        ad.addView(text("All day", 16f))
-        val sw = android.widget.Switch(this).apply { isChecked = allDay; setOnCheckedChangeListener { _, b -> allDay = b; upd() } }
-        ad.addView(sw.margins(px(16)))
+        val ad = hbox(this).apply { setPadding(0, px(16), 0, px(4)) }
+        ad.addView(text("All day", 16f)); ad.addView(Toggle(this, allDay) { allDay = it; upd() }.margins(px(16)))
         sheet.addView(ad)
+        // profile
         val pbox = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(14), px(14), px(14)) }
         pbox.addView(hbox(this).apply {
             addView(IconView(context, Ico(Ico.PERSON, C.INK, 22f, 1.6f), px(22)))
             addView(text("Profile", 16f).apply { setPadding(px(10), 0, 0, 0) }) })
         val sel = (e?.profiles?.filter { it != "family" } ?: filter.toList()).toMutableSet()
         pbox.addView(profilePicker(sel), lp(MATCH, WRAP).apply { topMargin = px(14) })
-        pbox.addView(text("Nobody picked = shared Family event", 13f, C.MUT).apply { setPadding(0, px(10), 0, 0) })
-        sheet.addView(pbox, lp(MATCH, WRAP).apply { topMargin = px(14) })
-        if (e?.recurring == true) sheet.addView(text("Repeating event – changes apply to the whole series.", 14f, C.MUT, lines = 2).apply { setPadding(0, px(14), 0, 0) })
-        sheet.addView(View(this), lp(MATCH, 0, 1f))
-        val foot = hbox(this, Gravity.END)
+        pbox.addView(text("Nobody picked = Shared (whole family)", 13f, C.MUT).apply { setPadding(0, px(10), 0, 0) })
+        sheet.addView(pbox, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // reminder
+        val remRow = fbox()
+        remRow.addView(IconView(this, Ico(Ico.CLOCK, C.INK, 22f, 1.6f), px(22)))
+        val remCol = vbox(this).apply { setPadding(px(10), 0, 0, 0) }
+        remCol.addView(text("Reminder", 12f, C.MUT)); val remT = text(remLabel(rem), 16f).apply { setPadding(0, px(4), 0, 0) }; remCol.addView(remT)
+        remRow.addView(remCol, lp(0, WRAP, 1f)); remRow.addView(IconView(this, Ico(Ico.RIGHT, C.MUT, 24f, 2f), px(24)))
+        val remList = vbox(this).apply { visibility = View.GONE }
+        remRow.setOnClickListener {
+            remList.visibility = if (remList.visibility == View.GONE) View.VISIBLE else View.GONE
+            choice(remList, REM_MIN.map { remLabel(it) }, REM_MIN.indexOf(rem).coerceAtLeast(0)) { i -> rem = REM_MIN[i]; remT.text = remLabel(rem); remList.visibility = View.GONE }
+        }
+        sheet.addView(remRow, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        sheet.addView(remList, lp(MATCH, WRAP))
+        sheet.addView(text("Reminders are saved with the event and ring on phones once it syncs to Google.", 13f, C.MUT, lines = 2).apply { setPadding(0, px(8), 0, 0) })
+        // synced calendar (stock "Pick a Synced calendar")
+        val cb = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
+        val ch = hbox(this); ch.addView(text("Pick a Synced calendar", 15f), lp(0, WRAP, 1f))
+        val chev = IconView(this, Ico(Ico.UP, C.MUT, 24f, 2f), px(24)); ch.addView(chev); cb.addView(ch)
+        val calList = vbox(this); cb.addView(calList)
+        val calOpts = if (e != null) listOf(cals.firstOrNull { it.id == e.cal } ?: Cal(e.cal, e.cal.replaceFirstChar { it.uppercase() }, false)) else writable.ifEmpty { listOf(Cal("shared", "Shared Calendar", true)) }
+        fun drawCals() = choice(calList, calOpts.map { it.name + if (e != null) "  (move not supported)" else "" }, calOpts.indexOfFirst { it.id == cal }.coerceAtLeast(0)) { i -> if (e == null) { cal = calOpts[i].id; drawCalsLater() } }
+        drawCalsFn = { drawCals() }; drawCals()
+        ch.setOnClickListener { calList.visibility = if (calList.visibility == View.GONE) View.VISIBLE else View.GONE
+            chev.setImage(Ico(if (calList.visibility == View.GONE) Ico.DOWN else Ico.UP, C.MUT, 24f, 2f)) }
+        sheet.addView(cb, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // anniversary + repeat
+        val (annR, at) = switchRow(Ico.CLOCK, "Anniversary", anniv, allDay) { anniv = it; repTouched = true; if (it) { repOn = false; repT.set(false) }; drawRep() }
+        annT = at
+        sheet.addView(annR, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        val (repR, rt) = switchRow(Ico.REPEAT, "Repeat", repOn) { repOn = it; repTouched = true; if (it && anniv) { anniv = false; annT.set(false) }; drawRep() }
+        repT = rt
+        sheet.addView(repR, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        sheet.addView(repBox, lp(MATCH, WRAP))
+        drawRep = {
+            repBox.removeAllViews()
+            if (repOn) {
+                if (fancy && !repTouched) repBox.addView(text("Custom repeat from Google (${e?.rrule}) – kept unless you change it.", 13f, C.MUT, lines = 2).apply { setPadding(0, px(8), 0, 0) })
+                val ev = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(8), px(14), px(8)) }
+                ev.addView(text("Repeats every", 12f, C.MUT))
+                val n = EditText(this).apply { setText("$every"); inputType = InputType.TYPE_CLASS_NUMBER; background = null; setPadding(0, px(4), 0, px(2))
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f))
+                    addTextChangedListener(object : android.text.TextWatcher {
+                        override fun afterTextChanged(x: android.text.Editable?) { every = x.toString().toIntOrNull()?.coerceIn(1, 99) ?: 1; repTouched = true }
+                        override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+                        override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {} }) }
+                ev.addView(n, lp(MATCH, WRAP)); repBox.addView(ev, lp(MATCH, WRAP).apply { topMargin = px(10) })
+                val iv = fbox(); val ic = vbox(this); ic.addView(text("Interval", 12f, C.MUT)); ic.addView(text(FREQ[freq].second, 16f).apply { setPadding(0, px(4), 0, 0) })
+                iv.addView(ic, lp(0, WRAP, 1f)); iv.addView(IconView(this, Ico(Ico.DOWN, C.MUT, 24f, 2f), px(24)))
+                val il = vbox(this).apply { visibility = View.GONE }
+                iv.setOnClickListener { il.visibility = View.VISIBLE; choice(il, FREQ.map { it.second }, freq) { i -> freq = i; repTouched = true; drawRep() } }
+                repBox.addView(iv, lp(MATCH, WRAP).apply { topMargin = px(10) }); repBox.addView(il, lp(MATCH, WRAP))
+                val (ur, _) = switchRow(Ico.REPEAT, "Repeats until", until.isNotEmpty()) { on -> repTouched = true; until = if (on) D.addMonths(date, 1) else ""; drawRep() }
+                repBox.addView(ur, lp(MATCH, WRAP).apply { topMargin = px(10) })
+                if (until.isNotEmpty()) { val (ub, ut) = box("Until"); ut.text = dl(until)
+                    ub.setOnClickListener { pickDate(until) { until = if (it < date) date else it; repTouched = true } }
+                    repBox.addView(ub, lp(MATCH, WRAP).apply { topMargin = px(10) }) }
+            }
+        }
+        drawRep()
+        val desc = EditText(this).apply { hint = "Description"; setText(e?.description ?: ""); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f))
+            minLines = 2; gravity = Gravity.TOP; setPadding(px(16), px(14), px(16), px(14)) }
+        sheet.addView(field(desc), lp(MATCH, WRAP).apply { topMargin = px(12) })
+        if (e?.recurring == true) sheet.addView(text("Repeating event – changes apply to the whole series.", 14f, C.MUT, lines = 2).apply { setPadding(0, px(12), 0, 0) })
+        val foot = hbox(this, Gravity.END).apply { setPadding(0, px(14), 0, 0) }
         foot.addView(blueButton("Save") {
             val t = title.text.toString().trim()
             if (t.isEmpty()) { toast("Add a title"); return@blueButton }
             if (!allDay && endDate == date && eMin <= sMin) { toast("End time is before start"); return@blueButton }
-            val d0 = if (e?.recurring == true) e.seriesStart.take(10) else date
-            val d1 = if (e?.recurring == true) d0 else endDate
+            val d0 = if (e?.recurring == true && !repTouched) e.seriesStart.take(10) else date
+            val d1 = if (e?.recurring == true && !repTouched) d0 else endDate
             val body = JSONObject().put("title", t).put("all_day", allDay).put("profiles", JSONArray(profiles.map { it.id }.filter { it in sel }))
+                .put("description", desc.text.toString().trim()).put("anniversary", anniv)
+                .put("reminders", JSONArray(if (rem >= 0) listOf(rem) else emptyList<Int>()))
             if (allDay) body.put("start", d0).put("end", d1)
             else body.put("start", "${d0}T%02d:%02d".format(sMin / 60, sMin % 60)).put("end", "${d1}T%02d:%02d".format(eMin / 60, eMin % 60))
+            if (anniv) body.put("rrule", "FREQ=YEARLY")
+            else if (repOn && (e == null || repTouched || !fancy)) {
+                var r = "FREQ=${FREQ[freq].first}" + if (every > 1) ";INTERVAL=$every" else ""
+                if (until.isNotEmpty()) r += ";UNTIL=" + until.replace("-", "") + if (allDay) "" else "T235959"
+                if (e == null || repTouched || r != e.rrule) body.put("rrule", r)
+            } else if (!repOn && (e == null || repTouched || e.rrule.isNotEmpty() && e.anniversary)) body.put("rrule", JSONObject.NULL)
+            if (e == null) body.put("cal", cal)
             hideKb(title); closeOverlay()
             val ok = { _: String -> toast("Saved"); if (e == null) anchor = if (mode == "month") anchor else date; refresh() }
             if (e == null) api.post("/api/events", body, ok, { toast(it) }) else api.call("PATCH", "/api/events/${e.id}", body, ok, { toast(it) })
-        })
-        sheet.addView(foot, lp(MATCH, WRAP))
+        }.apply { minWidth = px(90) })
+        outer.addView(foot, lp(MATCH, WRAP))
         upd()
-        s.addView(sheet, FrameLayout.LayoutParams(px(470), MATCH, Gravity.END))
+        s.addView(outer, FrameLayout.LayoutParams(px(470), MATCH, Gravity.END))
+    }
+    private var drawCalsFn: () -> Unit = {}
+    private var adTref: Toggle? = null
+    private fun drawCalsLater() = ui.post { drawCalsFn() }
+
+    /** Stock "Add Task" sheet: title, icon, assignee(s), stars, date, time / all day, repeat days. One chore per assignee on the server. */
+    private fun editTask(ch: Chore?) {
+        val s = scrim()
+        val outer = vbox(this).apply { setBackgroundColor(Color.WHITE); isClickable = true; setPadding(px(26), px(26), px(26), px(22)) }
+        val h = hbox(this); h.addView(text(if (ch == null) "Add Task" else "Edit Task", 26f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); outer.addView(h)
+        val sheet = vbox(this)
+        outer.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(sheet) }, lp(MATCH, 0, 1f).apply { topMargin = px(20) })
+        val title = EditText(this).apply { hint = "Title"; setText(ch?.title ?: ""); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(18f)); setSingleLine()
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; setPadding(px(16), px(18), px(16), px(18)) }
+        sheet.addView(field(title), lp(MATCH, WRAP))
+        // icon (emoji) row
+        val EMO = listOf("⭐", "🛏️", "🦷", "🍽️", "🧹", "🐶", "📚", "🧺", "🗑️", "🎒", "🚿", "🌱")
+        var emo = ch?.emoji?.ifEmpty { "⭐" } ?: "⭐"
+        val er = hbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(8), px(8), px(8), px(8)) }
+        fun drawEmo() { er.removeAllViews(); for (x in EMO) er.addView(text(x, 22f).apply { gravity = Gravity.CENTER
+            background = if (x == emo) oval(Color.WHITE, C.BLUE, 2f) else null; setOnClickListener { emo = x; drawEmo() } }, lp(0, px(40), 1f)) }
+        drawEmo(); sheet.addView(er, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // assignees
+        val pbox = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(14), px(14), px(14)) }
+        pbox.addView(hbox(this).apply { addView(IconView(context, Ico(Ico.PERSON, C.INK, 22f, 1.6f), px(22)))
+            addView(text("Assign to", 16f).apply { setPadding(px(10), 0, 0, 0) }) })
+        val sel = (if (ch != null) listOf(ch.profile) else filter.filter { it != "family" }).toMutableSet()
+        pbox.addView(profilePicker(sel), lp(MATCH, WRAP).apply { topMargin = px(14) })
+        if (ch != null) pbox.addView(text("Editing ${prof(ch.profile).name}'s copy of this task", 13f, C.MUT).apply { setPadding(0, px(10), 0, 0) })
+        sheet.addView(pbox, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // stars stepper
+        var stars = ch?.stars ?: 1
+        val sr = fbox(); sr.addView(BmpView(this, Img.get("star3"), px(22)))
+        sr.addView(text("Stars", 16f).apply { setPadding(px(10), 0, 0, 0) }, lp(0, WRAP, 1f))
+        val sv = text("$stars", 17f, C.INK, C.MED).apply { gravity = Gravity.CENTER }
+        fun step(d: Int) { stars = (stars + d).coerceIn(0, 20); sv.text = "$stars" }
+        sr.addView(text("–", 20f, C.BLUE, C.MED).apply { gravity = Gravity.CENTER; background = oval(Color.WHITE); setOnClickListener { step(-1) } }, lp(px(36), px(36)))
+        sr.addView(sv, lp(px(44), WRAP))
+        sr.addView(text("+", 20f, C.BLUE, C.MED).apply { gravity = Gravity.CENTER; background = oval(Color.WHITE); setOnClickListener { step(1) } }, lp(px(36), px(36)))
+        sheet.addView(sr, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // date + time
+        var date = ch?.onceDate?.ifEmpty { null } ?: ch?.startDate?.ifEmpty { null } ?: choresDate
+        var tm = mins(ch?.time)
+        val dr = hbox(this)
+        fun vb(label: String): Pair<LinearLayout, TextView> { val b = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(14), px(10), px(14), px(12)) }
+            b.addView(text(label, 12f, C.MUT)); val v = text("", 16f).apply { setPadding(0, px(6), 0, 0) }; b.addView(v); return b to v }
+        val (db, dt) = vb("Date"); val (tb, tt) = vb("Time")
+        fun upd() { dt.text = "${Fmt.DOW[D.dow(date)]}, ${D.short(date)}"; tt.text = if (tm < 0) "All day" else Fmt.clock(tm) }
+        db.setOnClickListener { val c = D.cal(date); DatePickerDialog(this, { _, y, m, d -> date = "%04d-%02d-%02d".format(y, m + 1, d); upd() }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show() }
+        tb.setOnClickListener { val t0 = if (tm < 0) 8 * 60 else tm; TimePickerDialog(this, { _, hh, mm -> tm = hh * 60 + mm; adTref?.set(false); upd() }, t0 / 60, t0 % 60, false).show() }
+        dr.addView(db, lp(0, px(62), 1f)); dr.addView(tb, lp(0, px(62), 1f).apply { leftMargin = px(14) })
+        sheet.addView(dr, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        val (adR, adT) = switchRow(-1, "All day", tm < 0) { on -> tm = if (on) -1 else 8 * 60; upd() }
+        adTref = adT
+        sheet.addView(adR, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        // repeat days (Mon..Sun on the server; shown Sun-first like stock)
+        val days = StringBuilder(if (ch != null && ch.onceDate.isEmpty()) ch.days else "1111111")
+        var rep = ch == null || ch.onceDate.isEmpty()
+        val dayRow = hbox(this).apply { setPadding(0, px(10), 0, 0) }
+        fun drawDays() { dayRow.removeAllViews(); dayRow.visibility = if (rep) View.VISIBLE else View.GONE
+            for (i in listOf(6, 0, 1, 2, 3, 4, 5)) { val on = days[i] == '1'
+                dayRow.addView(text("SMTWTFS"[(i + 1) % 7].toString(), 16f, if (on) Color.WHITE else C.INK, C.MED).apply { gravity = Gravity.CENTER
+                    background = if (on) oval(C.BLUE) else oval(C.FIELD); setOnClickListener { days.setCharAt(i, if (on) '0' else '1'); drawDays() } }, lp(px(46), px(46)).apply { rightMargin = px(10) }) } }
+        val (rr, _) = switchRow(Ico.REPEAT, "Repeat", rep) { rep = it; drawDays() }
+        sheet.addView(rr, lp(MATCH, WRAP).apply { topMargin = px(12) })
+        sheet.addView(dayRow); drawDays()
+        sheet.addView(text("Repeat off = only on the date above.", 13f, C.MUT).apply { setPadding(0, px(8), 0, 0) })
+        val foot = hbox(this, Gravity.CENTER_VERTICAL or Gravity.END).apply { setPadding(0, px(14), 0, 0) }
+        if (ch != null) foot.addView(IconView(this, Ico(Ico.TRASH, C.RED, 28f, 1.8f), px(28)).apply { setOnClickListener {
+            confirm("Delete task?", "Delete “${ch.title}” for ${prof(ch.profile).name}?", "Delete") {
+                api.call("DELETE", "/api/chores/${ch.id}", null, { toast("Deleted"); refresh() }, { toast(it) }) } } }, lp(px(28), px(28)).apply { rightMargin = px(30) })
+        foot.addView(blueButton("Save") {
+            val t = title.text.toString().trim()
+            if (t.isEmpty()) { toast("Add a title"); return@blueButton }
+            if (sel.isEmpty()) { toast("Pick who it's for"); return@blueButton }
+            if (rep && !days.contains('1')) { toast("Pick at least one day"); return@blueButton }
+            val b = JSONObject().put("title", t).put("emoji", emo).put("stars", stars)
+                .put("time", if (tm < 0) JSONObject.NULL else "%02d:%02d".format(tm / 60, tm % 60))
+            if (rep) b.put("days", days.toString()).put("start_date", date).put("once_date", JSONObject.NULL) else b.put("once_date", date).put("start_date", date)
+            hideKb(title); closeOverlay()
+            if (ch == null) api.post("/api/chores", b.put("profile_ids", JSONArray(people.map { it.id }.filter { it in sel })), { toast("Task added"); refresh() }, { toast(it) })
+            else api.call("PATCH", "/api/chores/${ch.id}", b.put("profile_id", sel.first()), { toast("Saved"); refresh() }, { toast(it) })
+        }.apply { minWidth = px(90) })
+        outer.addView(foot, lp(MATCH, WRAP))
+        upd()
+        s.addView(outer, FrameLayout.LayoutParams(px(470), MATCH, Gravity.END))
     }
 
     private fun showToTag() {
@@ -765,30 +1075,114 @@ class MainActivity : Activity(), Host {
         }, { toast(it) })
     }
 
-    private fun settings() {
-        val s = scrim()
-        val c = card(px(620)).apply { setPadding(px(28), px(24), px(28), px(24)) }
-        val h = hbox(this); h.addView(text("Settings", 24f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
-        fun f(label: String, v: String, secret: Boolean = false): EditText {
-            c.addView(text(label, 14f, C.MUT).apply { setPadding(0, px(16), 0, px(6)) })
-            val et = EditText(this).apply { setText(v); hint = label; setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(17f)); setSingleLine()
-                background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12))
-                if (secret) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-            c.addView(et, lp(MATCH, WRAP)); return et
+    /** Stock full-screen Settings: back chevron + left menu (General / Calendar / Tasks / Sleep / Connection / About). */
+    private var setSec = "General"
+    private fun settings(sec: String = setSec) {
+        setSec = sec
+        ovl.removeAllViews()
+        val root2 = hbox(this, Gravity.TOP).apply { setBackgroundColor(Color.WHITE); isClickable = true }
+        ovl.addView(root2, FrameLayout.LayoutParams(MATCH, MATCH))
+        val menu = vbox(this).apply { setPadding(0, px(20), 0, 0) }
+        menu.addView(IconView(this, Ico(Ico.LEFT, C.INK, 26f, 2f), px(26)).apply { background = oval(C.FIELD); setOnClickListener { closeOverlay(); render() } },
+            lp(px(36), px(36)).apply { leftMargin = px(22); bottomMargin = px(24) })
+        val secs = listOf("General" to "icon_home_setting", "Calendar" to "icon_home_cal", "Tasks" to "icon_home_chore", "Sleep" to "icon_home_sleep",
+            "Wi-Fi" to "icon_home_wifi", "About" to "icon_home_more")
+        for ((n, ic) in secs) {
+            val r = hbox(this).apply { setPadding(px(28), 0, px(10), 0); setOnClickListener { settings(n) }; if (n == sec) foreground = SelBar() }
+            r.addView(BmpView(this, Img.get(ic), px(30)))
+            r.addView(text(n, 15f, if (n == sec) C.INK else C.MUT).apply { setPadding(px(18), 0, 0, 0) })
+            menu.addView(r, lp(MATCH, px(76)))
         }
-        val url = f("Family server", api.base)
-        val key = f("Key (leave blank to keep)", "", true)
-        val ss = f("Sleep starts (HH:MM)", prefs.getString("sleep_start", "21:30")!!)
-        val se = f("Sleep ends (HH:MM)", prefs.getString("sleep_end", "06:30")!!)
-        val b = hbox(this, Gravity.END).apply { setPadding(0, px(22), 0, 0) }
-        b.addView(greyButton("Cancel") { closeOverlay() })
-        b.addView(blueButton("Save") {
-            api.base = url.text.toString().trim(); if (key.text.isNotBlank()) api.key = key.text.toString().trim()
-            prefs.edit().putString("sleep_start", ss.text.toString().trim()).putString("sleep_end", se.text.toString().trim()).apply()
-            hideKb(url); closeOverlay(); refresh()
-        }.margins(px(12)))
-        c.addView(b, lp(MATCH, WRAP))
-        s.addView(c, FrameLayout.LayoutParams(px(620), WRAP, Gravity.CENTER))
+        root2.addView(menu, lp(px(215), MATCH))
+        root2.addView(View(this).apply { setBackgroundColor(C.SIDE_EDGE) }, lp(px(2), MATCH))
+        val right = vbox(this)
+        root2.addView(right, lp(0, MATCH, 1f))
+        right.addView(text("Settings", 18f, C.INK, C.MED).apply { gravity = Gravity.CENTER }, lp(MATCH, px(68)))
+        right.addView(View(this).apply { setBackgroundColor(C.BAND) }, lp(MATCH, px(10)))
+        val body = vbox(this).apply { setPadding(px(18), 0, px(36), px(40)) }
+        right.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(body) }, lp(MATCH, 0, 1f))
+        fun head(t: String) { if (body.childCount > 0) body.addView(View(this).apply { setBackgroundColor(C.BAND) }, lp(MATCH, px(8)).apply { topMargin = px(4) })
+            body.addView(text(t, 20f, C.INK, C.BOLD).apply { setPadding(0, px(36), 0, px(24)) }) }
+        fun row(label: String, right: View?, enabled: Boolean = true, click: (() -> Unit)? = null) {
+            val r = hbox(this).apply { if (click != null) setOnClickListener { click() } }
+            r.addView(text(label, 15f, if (enabled) C.INK else C.MUT2), lp(0, WRAP, 1f)); if (right != null) r.addView(right)
+            body.addView(View(this).apply { setBackgroundColor(C.LINE) }, lp(MATCH, px(1)))
+            body.addView(r, lp(MATCH, px(62)))
+        }
+        fun value(v: String, chevron: Boolean = true) = hbox(this).apply { addView(text(v, 15f, C.MUT))
+            if (chevron) addView(IconView(context, Ico(Ico.RIGHT, C.MUT, 22f, 2f), px(22)).margins(px(6))) }
+        fun sw(key: String, def: Boolean, enabled: Boolean = true, after: () -> Unit = {}) = hbox(this).apply {
+            val st = text(if (prefs.getBoolean(key, def)) "On" else "Off", 14f, C.MUT)
+            addView(Toggle(context, prefs.getBoolean(key, def), enabled) { prefs.edit().putBoolean(key, it).apply(); st.text = if (it) "On" else "Off"; chipCache.clear(); after() })
+            addView(st.margins(px(10)), lp(px(40), WRAP)) }
+        fun cycle(key: String, opts: List<Pair<String, String>>, def: String, after: () -> Unit = {}): View {
+            val cur = prefs.getString(key, def)!!
+            return value(opts.firstOrNull { it.first == cur }?.second ?: cur).apply { setOnClickListener {
+                val i = (opts.indexOfFirst { it.first == cur } + 1) % opts.size; prefs.edit().putString(key, opts[i].first).apply(); after(); settings(sec) } }
+        }
+        when (sec) {
+            "General" -> {
+                head("General")
+                row("Time zone", value(java.util.TimeZone.getDefault().getDisplayName(false, java.util.TimeZone.LONG).replace(" Standard", "")
+                    .replace("Central Time", "Central Time"), false))
+                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE })
+                row("Use 24-hour format", sw("h24", false, false), false)
+                row("Date format", value("MM/DD/YYYY", false))
+                head("Show")
+                row("Show weather information", sw("show_weather", true) { render() })
+                row("Show chores on calendar", sw("chores_on_cal", true))
+                row("Keep screen on", sw("keep_on", true) { if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) })
+            }
+            "Calendar" -> {
+                head("Calendar")
+                row("Default view", cycle("default_view", listOf("week" to "Week", "month" to "Month", "day" to "Day", "schedule" to "Schedule"), "week"))
+                row("Default reminder", value(remLabel(prefs.getInt("def_reminder", 0))).apply { setOnClickListener {
+                    val i = (REM_MIN.indexOf(prefs.getInt("def_reminder", 0)) + 1) % REM_MIN.size; prefs.edit().putInt("def_reminder", REM_MIN[i]).apply(); settings(sec) } })
+                head("Synced calendars")
+                if (cals.isEmpty()) row("No calendars yet", null, false)
+                for (k in cals) row(k.name, value(if (k.writable) "Read & write" else "Read only", false))
+                row("Events to tag", value("$toTag"), true) { closeOverlay(); showToTag() }
+            }
+            "Tasks" -> {
+                head("Tasks")
+                row("Show chores on calendar", sw("chores_on_cal", true))
+                row("Task stars", value("Set per task", false))
+                head("Lists")
+                for (l in lists) row(l.name, value("${l.items.count { !it.done }} open"))  { closeOverlay(); page = "lists"; render() }
+                row("+ Add List", null) { nameList(null) }
+            }
+            "Sleep" -> {
+                head("Sleep Mode")
+                row("Sleep Mode Schedule", sw("sleep_on", true) { updateClock() })
+                val dn = prefs.getString("sleep_days", "1111111")!!
+                row("Schedule", value((if (dn == "1111111") "Every day" else (0..6).filter { dn[it] == '1' }.joinToString(",") { Fmt.DOW[it] }) +
+                    "  ${Fmt.clock(mins(prefs.getString("sleep_start", "21:30")).coerceAtLeast(0))} – ${Fmt.clock(mins(prefs.getString("sleep_end", "06:30")).coerceAtLeast(0))}")) { sleepCard() }
+                row("While asleep", cycle("sleep_dim", listOf("clock" to "Dim with clock", "black" to "Black screen"), "clock"))
+                row("Sleep mode after inactivity", sw("sleep_idle", false))
+                row("Sleep now", value("")) { closeOverlay(); goNight() }
+            }
+            "Wi-Fi" -> {
+                head("Family server")
+                val url = EditText(this).apply { setText(api.base); setSingleLine(); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f)); background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
+                body.addView(text("Server address", 14f, C.MUT).apply { setPadding(0, 0, 0, px(6)) }); body.addView(url, lp(MATCH, WRAP))
+                val key = EditText(this).apply { hint = "Key (leave blank to keep)"; setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f)); background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
+                body.addView(text("Key", 14f, C.MUT).apply { setPadding(0, px(16), 0, px(6)) }); body.addView(key, lp(MATCH, WRAP))
+                body.addView(hbox(this, Gravity.END).apply { setPadding(0, px(18), 0, 0); addView(blueButton("Save") {
+                    api.base = url.text.toString().trim(); if (key.text.isNotBlank()) api.key = key.text.toString().trim()
+                    hideKb(url); toast("Saved"); lastJson = 0; refresh() }) }, lp(MATCH, WRAP))
+                row("Status", value(if (offline) "Can't reach server" else "Connected", false))
+            }
+            else -> {
+                head("About")
+                val v = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" }
+                row("App", value("Family Calendar $v", false))
+                row("Calendar source", value("…", false).also { vv -> api.get("/health", { t -> try { ((vv as LinearLayout).getChildAt(0) as TextView).text =
+                    JSONObject(t).optString("source") + " · synced " + JSONObject(t).optString("last_sync").replace("T", " ").take(16) } catch (_: Exception) {} }) })
+                row("Profiles", value(people.joinToString(", ") { it.name }, false))
+            }
+        }
     }
 
     // ================================================================= clock + night
@@ -809,11 +1203,18 @@ class MainActivity : Activity(), Host {
         if (offline) titleTv.append("  ⚠")
         nightClock.text = Fmt.clock(m).substring(0, 5).trimStart('0')
         val a = mins(prefs.getString("sleep_start", "21:30")); val b = mins(prefs.getString("sleep_end", "06:30"))
-        val sleeping = a >= 0 && b >= 0 && (if (a > b) (m >= a || m < b) else (m in a until b))
-        val dim = (forcedNight || sleeping) && System.currentTimeMillis() > wakeUntil
+        // the night belongs to the day it started on (Mon..Sun = 0..6), so Fri 9pm–Sat 6am follows Friday's box
+        val dowNow = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7
+        val startDow = if (a > b && m < b) (dowNow + 6) % 7 else dowNow
+        val inWindow = a >= 0 && b >= 0 && (if (a > b) (m >= a || m < b) else (m in a until b))
+        val sleeping = prefs.getBoolean("sleep_on", true) && inWindow && prefs.getString("sleep_days", "1111111")!!.getOrElse(startDow) { '1' } == '1'
+        val idle = prefs.getBoolean("sleep_idle", false) && System.currentTimeMillis() - lastTouch > 60_000L * prefs.getInt("sleep_idle_min", 10) && ovl.childCount == 0
+        val dim = (forcedNight || sleeping || idle) && System.currentTimeMillis() > wakeUntil
+        val black = prefs.getString("sleep_dim", "clock") == "black"
+        nightClock.visibility = if (black) View.GONE else View.VISIBLE
         if (dim != (night.visibility == View.VISIBLE)) {
             night.visibility = if (dim) View.VISIBLE else View.GONE
-            window.attributes = window.attributes.apply { screenBrightness = if (dim) 0.02f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+            window.attributes = window.attributes.apply { screenBrightness = if (dim) (if (black) 0.0f else 0.02f) else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
         }
         if (prefs.getString("last_day", "") != today) { prefs.edit().putString("last_day", today).apply(); if (mode != "month") anchor = today; chipCache.clear(); ui.post { render(); refresh() } }
     }

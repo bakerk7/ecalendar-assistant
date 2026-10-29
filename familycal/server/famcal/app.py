@@ -183,16 +183,26 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
 
     @app.post("/api/chores", dependencies=A)
     def add_chore(body: dict = Body(...)):
-        if not body.get("title") or body.get("profile_id") not in svc.valid_ids():
-            raise HTTPException(400, "title and valid profile_id required")
-        return svc.add_chore(body)
+        pids = body.get("profile_ids") or [body.get("profile_id")]
+        if not (body.get("title") or "").strip() or any(p not in svc.valid_ids() for p in pids):
+            raise HTTPException(400, "title and valid profile_id(s) required")
+        if body.get("days") and (len(body["days"]) != 7 or set(body["days"]) - {"0", "1"}):
+            raise HTTPException(400, "days must be 7 chars of 0/1 (Mon..Sun)")
+        out = svc.add_chores(body)
+        return out if body.get("profile_ids") else out[0]
 
     @app.patch("/api/chores/{cid}", dependencies=A)
     def edit_chore(cid: str, body: dict = Body(...)):
-        for k in ("title", "emoji", "profile_id", "stars", "days", "end_date", "active", "sort"):
+        if not db.one("SELECT 1 FROM chores WHERE id=?", (cid,)):
+            raise HTTPException(404, "not found")
+        for k in ("title", "emoji", "profile_id", "stars", "days", "start_date", "end_date", "once_date", "active", "sort"):
             if k in body:
                 db.x(f"UPDATE chores SET {k}=? WHERE id=?", (body[k], cid))
-        return db.one("SELECT * FROM chores WHERE id=?", (cid,))
+        if "time" in body:
+            m = db.one("SELECT grp FROM chore_meta WHERE chore_id=?", (cid,)) or {}
+            db.x("INSERT OR REPLACE INTO chore_meta(chore_id,time,grp) VALUES(?,?,?)", (cid, body["time"], m.get("grp")))
+        r = db.one("SELECT c.*, m.time, m.grp FROM chores c LEFT JOIN chore_meta m ON m.chore_id=c.id WHERE c.id=?", (cid,))
+        return r
 
     @app.delete("/api/chores/{cid}", dependencies=A)
     def del_chore(cid: str):
@@ -259,6 +269,17 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         db.x("INSERT INTO lists(id,name,emoji,sort) VALUES(?,?,?,?)", (new_id(), body["name"], body.get("emoji", "📝"), 50))
         return lists()
 
+    @app.patch("/api/lists/{lid}", dependencies=A)
+    def edit_list(lid: str, body: dict = Body(...)):
+        if not db.one("SELECT 1 FROM lists WHERE id=?", (lid,)):
+            raise HTTPException(404, "not found")
+        for k in ("name", "emoji", "sort"):
+            if k in body:
+                if k == "name" and not (body[k] or "").strip():
+                    raise HTTPException(400, "name required")
+                db.x(f"UPDATE lists SET {k}=? WHERE id=?", (body[k], lid))
+        return lists()
+
     @app.delete("/api/lists/{lid}", dependencies=A)
     def del_list(lid: str):
         db.x("DELETE FROM list_items WHERE list_id=?", (lid,))
@@ -297,12 +318,14 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         return svc.weather()
 
     @app.get("/api/home", dependencies=A)
-    def home(start: str, end: str):
+    def home(start: str, end: str, chores_date: Optional[str] = None):
         """Everything the tablet needs in one round trip (cuts radio wakeups + memory churn)."""
         s, e = _day(start, "start"), _day(end, "end")
         if e < s or (e - s).days > 120:
             raise HTTPException(400, "bad range")
-        return {"profiles": svc.profiles(), "items": svc.instances(s, e), "chores": svc.chores_for(date.today()),
+        return {"profiles": svc.profiles(), "items": svc.instances(s, e), "chores": svc.chores_for(_day(chores_date) if chores_date else date.today()),
+                "calendars": [{"id": c["id"], "name": c["name"], "color": c.get("color"),
+                               "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),
                 "to_tag": len(svc.to_tag(1000)), "server_time": now()}
 
