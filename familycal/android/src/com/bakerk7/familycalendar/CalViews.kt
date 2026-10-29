@@ -5,293 +5,374 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import android.view.ViewConfiguration
+import java.util.Calendar
+
+/** One thing drawn on the calendar: an event, or a chore shown as a stock-style "task". */
+class Chip(val title: String, val allDay: Boolean, val startMin: Int, val endMin: Int, val profs: List<Profile>,
+           val ev: Ev? = null, val chore: Chore? = null) {
+    val task get() = chore != null
+    val done get() = chore?.done == true
+    fun sub() = if (allDay || startMin < 0) "All day" else if (endMin > startMin) "${Fmt.clock(startMin)} - ${Fmt.clock(endMin)}" else Fmt.clock(startMin)
+    fun right() = if (allDay || startMin < 0) "All day" else Fmt.clock(startMin)
+}
 
 interface Host {
     val ctx: Context
-    fun events(): List<Ev>               // already filtered
+    fun chips(date: String): List<Chip>
     fun prof(id: String): Profile
-    fun weatherFor(date: String): Day?
-    fun onEvent(e: Ev)
+    fun onChip(c: Chip)
     fun onDay(date: String)
+    fun onAdd(date: String)
+    fun onWeek(start: String)
 }
 
-/** Event colour = first tagged person; multi-person events get extra dots. */
-fun Host.color(e: Ev) = prof(e.profiles.firstOrNull() ?: "family").color
+/**
+ * Shared paint code: every calendar surface is ONE custom View drawing chips on a Canvas
+ * (no per-event child views, so a 40-event month costs one draw pass, not 40 layouts).
+ */
+abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
+    protected val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    protected val line = Paint().apply { color = C.LINE; strokeWidth = 1f }
+    protected val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = C.REG }
+    protected val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    protected val rf = RectF(); protected val rf2 = RectF(); protected val path = Path()
+    protected val hits = ArrayList<Pair<RectF, () -> Unit>>()
+    private val check = Ico(Ico.CHECK, Color.WHITE, 16f, 2.4f)
+    private val smallCheck = Ico(Ico.CHECKBOX, C.INK, 15f, 1.5f)
+    protected val today = D.today()
+    protected val nowMin = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 
-fun Host.eventRow(e: Ev, big: Boolean = false): View {
-    val c = ctx; val col = color(e)
-    if (e.allDay) {
-        return c.text(e.title, if (big) 17f else 14.5f, Color.WHITE, C.BOLD).apply {
-            background = round(c, col, 9f); setPadding(c.dp(10), c.dp(6), c.dp(10), c.dp(6))
-            layoutParams = lp(MATCH, WRAP).apply { topMargin = c.dp(4) }
-            setOnClickListener { onEvent(e) }
-            if (e.profiles.size > 1) text = e.title + "  " + e.profiles.joinToString(" ") { "●" }
-        }
-    }
-    val row = hbox(c).apply {
-        background = lipCard(c, Color.WHITE, 9f, tint(Color.BLACK, 14), 2)
-        layoutParams = lp(MATCH, WRAP).apply { topMargin = c.dp(4) }
-        setOnClickListener { onEvent(e) }
-    }
-    row.addView(View(c).apply { background = round(c, col, 3f); layoutParams = lp(c.dp(5), c.dp(if (big) 30 else 22)).apply { leftMargin = c.dp(4) } })
-    row.addView(c.text(Fmt.hm(e.start), if (big) 15f else 13f, col, C.BOLD).apply {
-        setPadding(c.dp(7), c.dp(6), c.dp(4), c.dp(7))
-    })
-    row.addView(c.text(e.title, if (big) 17f else 14.5f, C.INK, C.BOLD).apply {
-        layoutParams = lp(0, WRAP, 1f); setPadding(c.dp(2), c.dp(6), c.dp(6), c.dp(7))
-    })
-    if (e.profiles.size > 1 || big) for (p in e.profiles.take(4)) {
-        row.addView(c.avatar(prof(p), if (big) 22 else 16, if (big) 11f else 9f).apply { (layoutParams as LinearLayout.LayoutParams).rightMargin = c.dp(3) })
-    }
-    if (e.needsTag) row.addView(c.text("🏷️", 12f).apply { setPadding(0, 0, c.dp(6), 0) })
-    return row
-}
+    protected fun hit(l: Float, t: Float, r: Float, b: Float, f: () -> Unit) { hits += RectF(l, t, r, b) to f }
 
-/** 4×2 grid: seven day cards + a "who's busy" summary, as in the approved dashboard mock. */
-@SuppressLint("ViewConstructor")
-class WeekView(private val h: Host, private val start: String) : LinearLayout(h.ctx) {
-    init {
-        orientation = VERTICAL
-        val evs = h.events(); val today = D.today()
-        for (r in 0..1) {
-            val row = LinearLayout(context).apply { orientation = HORIZONTAL; layoutParams = lp(MATCH, 0, 1f) }
-            addView(row)
-            for (col in 0..3) {
-                val i = r * 4 + col
-                val cell = if (i < 7) dayCell(D.add(start, i), i, evs, today) else summary(evs)
-                cell.layoutParams = lp(0, MATCH, 1f).apply { setMargins(context.dp(5), context.dp(5), context.dp(5), context.dp(5)) }
-                row.addView(cell)
+    protected fun text(c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, maxW: Float, tf: Typeface = C.REG, align: Paint.Align = Paint.Align.LEFT) {
+        tp.textSize = fpx(size); tp.color = color; tp.typeface = tf; tp.textAlign = align
+        val t = if (maxW > 0) TextUtils.ellipsize(s, tp, maxW, TextUtils.TruncateAt.END).toString() else s
+        c.drawText(t, x, y, tp); tp.textAlign = Paint.Align.LEFT
+    }
+
+    /** Pastel background; multi-person items get the stock diagonal stripes in each person's pastel. */
+    protected fun chipBg(c: Canvas, r: RectF, ch: Chip, radius: Float) {
+        val ps = ch.profs
+        fill.style = Paint.Style.FILL
+        fill.color = if (ch.task) taskPastel(ps[0]) else pastel(ps[0])
+        c.drawRoundRect(r, fpx(radius), fpx(radius), fill)
+        if (ps.size > 1) {
+            c.save(); path.reset(); path.addRoundRect(r, fpx(radius), fpx(radius), Path.Direction.CW); c.clipPath(path)
+            val seg = r.width() / ps.size; val slant = r.height() * .9f
+            for (i in 1 until ps.size) {
+                fill.color = pastel(ps[i]); path.reset()
+                val x0 = r.left + seg * i
+                path.moveTo(x0, r.bottom); path.lineTo(x0 + slant, r.top); path.lineTo(r.right + slant + seg, r.top); path.lineTo(r.right + seg, r.bottom); path.close()
+                c.drawPath(path, fill)
             }
+            c.restore()
         }
     }
 
-    private fun dayCell(d: String, i: Int, all: List<Ev>, today: String): View {
-        val c = context; val isToday = d == today
-        val box = vbox(c).apply {
-            setPadding(c.dp(10), c.dp(8), c.dp(10), c.dp(8))
-            background = if (isToday) round(c, Color.WHITE, 16f, C.ACC, 3) else round(c, C.DAYS[D.dow(d)], 16f)
-            setOnClickListener { h.onDay(d) }
+    /** Stock week/day chip: 76px card, accent bar, title, subtitle, avatar(s), task circle. */
+    protected fun bigChip(c: Canvas, r: RectF, ch: Chip, allAvatars: Boolean) {
+        chipBg(c, r, ch, 10f)
+        var x = r.left + fpx(10f)
+        if (!ch.task && ch.profs.size == 1) {
+            fill.color = strong(ch.profs[0]); rf2.set(x, r.top + fpx(14f), x + fpx(3f), r.bottom - fpx(14f)); c.drawRect(rf2, fill); x += fpx(10f)
         }
-        val head = hbox(c)
-        head.addView(c.text(D.day(d).toString(), 26f, if (isToday) Color.WHITE else C.INK, C.BLACK).apply {
-            if (isToday) { background = round(c, C.ACC, 10f); setPadding(c.dp(7), c.dp(2), c.dp(7), c.dp(3)) }
-        })
-        head.addView(c.text(Fmt.DOW[D.dow(d)].uppercase() + if (isToday) " · TODAY" else "", 13f, if (isToday) C.ACC else C.MUT, C.BLACK).apply {
-            setPadding(c.dp(7), c.dp(6), 0, 0); layoutParams = lp(0, WRAP, 1f)
-        })
-        h.weatherFor(d)?.let { w -> head.addView(c.text("${Parse.wxEmoji(w.code)} ${w.hi}°/${w.lo}°", 12f, C.MUT, C.BOLD)) }
-        box.addView(head)
-        val list = vbox(c)
-        val evs = all.filter { it.date <= d && it.endDate >= d }.sortedWith(compareBy({ !it.allDay }, { it.start }))
-        val sc = ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(list); layoutParams = lp(MATCH, 0, 1f) }
-        box.addView(sc)
-        for (e in evs) list.addView(h.eventRow(e))
-        if (evs.isEmpty()) list.addView(c.text("Nothing planned", 13f, tint(C.MUT, 150), C.MED).apply { setPadding(c.dp(4), c.dp(10), 0, 0) })
-        return box
+        var right = r.right - fpx(12f)
+        if (ch.task) {
+            val s = fpx(24f); val cy = r.centerY() + fpx(12f)
+            fill.color = if (ch.done) strong(ch.profs[0]) else Color.WHITE
+            c.drawCircle(right - s / 2, cy, s / 2, fill)
+            if (!ch.done) { fill.style = Paint.Style.STROKE; fill.strokeWidth = fpx(1f); fill.color = Color.parseColor("#C9CED6"); c.drawCircle(right - s / 2, cy, s / 2, fill); fill.style = Paint.Style.FILL }
+            else { check.setBounds((right - s + fpx(4f)).toInt(), (cy - s / 2 + fpx(4f)).toInt(), (right - fpx(4f)).toInt(), (cy + s / 2 - fpx(4f)).toInt()); check.draw(c) }
+            right -= s + fpx(8f)
+        }
+        val av = fpx(26f); val ay = r.centerY() + fpx(12f) - av / 2
+        val shown = if (allAvatars) ch.profs.reversed() else listOf(ch.profs[0])
+        if (!allAvatars && ch.profs.size > 1) {
+            text(c, "+${ch.profs.size - 1}", right, ay + av * .7f, 13f, C.INK, 0f, C.MED, Paint.Align.RIGHT); right -= fpx(22f)
+        }
+        for (p in shown) { drawAvatar(c, p, Img.avatar(p.id), right - av, ay, av, bmpPaint, rf2); right -= av + fpx(4f) }
+        val tw = right - x - fpx(6f)
+        text(c, ch.title, x, r.top + fpx(30f), 18f, if (ch.done) C.MUT else C.INK, tw)
+        text(c, ch.sub(), x, r.top + fpx(56f), 15f, C.MUT, tw)
     }
 
-    private fun summary(all: List<Ev>): View {
-        val c = context
-        val box = vbox(c).apply { setPadding(c.dp(14), c.dp(10), c.dp(14), c.dp(10)); background = round(c, Color.WHITE, 16f, C.LIP, 2) }
-        box.addView(c.text("THIS WEEK", 13f, C.MUT, C.BLACK))
-        box.addView(c.text("${all.size} events", 24f, C.INK, C.BLACK).apply { setPadding(0, c.dp(2), 0, c.dp(6)) })
-        val counts = LinkedHashMap<String, Int>()
-        for (id in listOf("jack", "liv", "mom", "dad", "bruce", "family")) counts[id] = all.count { id in it.profiles }
-        for ((id, n) in counts) {
-            val p = h.prof(id); val r = hbox(c).apply { setPadding(0, c.dp(3), 0, c.dp(3)) }
-            r.addView(c.avatar(p, 18, 9f)); r.addView(c.text(p.name, 15f).apply { setPadding(c.dp(8), 0, 0, 0); layoutParams = lp(0, WRAP, 1f) })
-            r.addView(c.text("$n", 15f, C.INK, C.BLACK)); box.addView(r)
+    /** Stock month/all-day strip: 29px, 2px bar, title left, time right. */
+    protected fun smallChip(c: Canvas, r: RectF, ch: Chip, showRight: Boolean = true, size: Float = 16f) {
+        chipBg(c, r, ch, 8f)
+        var x = r.left + fpx(6f)
+        if (ch.task) { val s = fpx(15f); smallCheck.setBounds(x.toInt(), (r.centerY() - s / 2).toInt(), (x + s).toInt(), (r.centerY() + s / 2).toInt()); smallCheck.draw(c); x += s + fpx(5f) }
+        else if (ch.profs.size == 1) { fill.color = strong(ch.profs[0]); rf2.set(r.left, r.top + fpx(3f), r.left + fpx(2f), r.bottom - fpx(3f)); c.drawRect(rf2, fill) }
+        val base = r.centerY() + fpx(size * .36f)
+        var right = r.right - fpx(6f)
+        if (showRight) { tp.textSize = fpx(14f); val s = ch.right(); text(c, s, right, base, 14f, C.MUT, 0f, C.REG, Paint.Align.RIGHT); right -= tp.measureText(s) + fpx(6f) }
+        text(c, ch.title, x, base, size, if (ch.done) C.MUT else C.INK, right - x)
+    }
+
+    private var downX = 0f; private var downY = 0f; protected var dragging = false
+    protected val slop = ViewConfiguration.get(h.ctx).scaledTouchSlop
+    open fun onDrag(dy: Float, x: Float, y: Float) {}
+    private var lastY = 0f
+    private var vt: android.view.VelocityTracker? = null
+    private val fling = android.widget.OverScroller(h.ctx)
+    private var flingLast = 0
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (vt == null) vt = android.view.VelocityTracker.obtain()
+        vt!!.addMovement(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { fling.forceFinished(true); downX = e.x; downY = e.y; lastY = e.y; dragging = false }
+            MotionEvent.ACTION_MOVE -> {
+                if (!dragging && Math.abs(e.y - downY) > slop) dragging = true
+                if (dragging) { onDrag(e.y - lastY, downX, downY); lastY = e.y }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!dragging) { for (i in hits.indices.reversed()) if (hits[i].first.contains(e.x, e.y)) { hits[i].second(); break } }
+                else { vt!!.computeCurrentVelocity(1000); val v = vt!!.yVelocity.toInt()
+                    if (Math.abs(v) > 600) { flingLast = 0; fling.fling(0, 0, 0, v, 0, 0, -100000, 100000); postInvalidateOnAnimation() } }
+                vt?.recycle(); vt = null
+            }
+            MotionEvent.ACTION_CANCEL -> { vt?.recycle(); vt = null }
         }
-        return box
+        return true
+    }
+    override fun computeScroll() {
+        if (fling.computeScrollOffset()) { val y = fling.currY; onDrag((y - flingLast).toFloat(), downX, downY); flingLast = y; postInvalidateOnAnimation() }
     }
 }
 
-/** Month grid drawn on one Canvas (cheap: one view, no per-day layouts). */
+/** Stock Week: today + 6 days in a 4×2 grid, 8th cell "Next Week". Each cell scrolls on its own. */
 @SuppressLint("ViewConstructor")
-class MonthView(private val h: Host, private val month: String) : View(h.ctx) {
-    private val first = D.weekStart(D.monthStart(month))
-    private val evs = h.events()
-    private val byDay = HashMap<String, MutableList<Ev>>()
-    private val tp = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val r = RectF()
-    private val hits = ArrayList<Pair<RectF, Ev>>()
-    init {
-        for (i in 0 until 42) {
-            val d = D.add(first, i)
-            byDay[d] = evs.filter { it.date <= d && it.endDate >= d }.sortedWith(compareBy({ !it.allDay }, { it.start })).toMutableList()
-        }
+class WeekView(h: Host, private val start: String) : ChipCanvas(h) {
+    private val days = (0..6).map { D.add(start, it) }
+    private val data = days.map { h.chips(it) }
+    private val scroll = FloatArray(7)
+    private val cell = Rect()
+    private val plus = Ico(Ico.PLUS, C.MUT, 16f, 1.6f)
+    private val HEAD = 66f; private val CH = 76f; private val GAP = 4f; private val M = 8f
+
+    private fun cellRect(i: Int, out: Rect) {
+        val cw = width / 4f; val chh = height / 2f; val col = i % 4; val row = i / 4
+        out.set((col * cw).toInt(), (row * chh).toInt(), ((col + 1) * cw).toInt(), ((row + 1) * chh).toInt())
     }
-    override fun onDraw(cv: Canvas) {
+    override fun onDrag(dy: Float, x: Float, y: Float) {
+        val i = (y / (height / 2f)).toInt() * 4 + (x / (width / 4f)).toInt()
+        if (i !in 0..6) return
+        cellRect(i, cell)
+        val content = data[i].size * fpx(CH + GAP) + fpx(M)
+        val max = (content - (cell.height() - fpx(HEAD))).coerceAtLeast(0f)
+        scroll[i] = (scroll[i] - dy).coerceIn(0f, max)
+        invalidate(cell)
+    }
+
+    override fun onDraw(c: Canvas) {
         hits.clear()
-        val hd = context.dp(26f).toFloat(); val cw = width / 7f; val ch = (height - hd) / 6f; val today = D.today(); val pad = context.dp(3f).toFloat()
-        tp.typeface = C.BLACK; tp.textSize = context.dp(13f).toFloat(); tp.color = C.MUT
-        for (i in 0..6) cv.drawText(Fmt.DOW[i].uppercase(), i * cw + pad * 3, hd - context.dp(8f), tp)
-        for (i in 0 until 42) {
-            val d = D.add(first, i); val x = (i % 7) * cw; val y = hd + (i / 7) * ch
-            val inMonth = d.substring(0, 7) == month.substring(0, 7)
-            r.set(x + pad, y + pad, x + cw - pad, y + ch - pad)
-            p.style = Paint.Style.FILL; p.color = if (d == today) Color.WHITE else if (inMonth) C.DAYS[i % 7] else mix(C.SOFT, .4f)
-            cv.drawRoundRect(r, context.dp(12f).toFloat(), context.dp(12f).toFloat(), p)
-            if (d == today) { p.style = Paint.Style.STROKE; p.strokeWidth = context.dp(3f).toFloat(); p.color = C.ACC; cv.drawRoundRect(r, context.dp(12f).toFloat(), context.dp(12f).toFloat(), p) }
-            tp.typeface = C.BLACK; tp.textSize = context.dp(17f).toFloat(); tp.color = if (d == today) C.ACC else if (inMonth) C.INK else tint(C.MUT, 120)
-            cv.drawText(D.day(d).toString(), x + pad * 3, y + pad + context.dp(19f), tp)
-            val list = byDay[d] ?: continue
-            val lh = context.dp(19f).toFloat(); var ly = y + pad + context.dp(25f)
-            val maxRows = ((ch - context.dp(30f)) / (lh + 2)).toInt().coerceAtLeast(1)
-            for ((k, e) in list.withIndex()) {
-                if (k == maxRows - 1 && list.size > maxRows) {
-                    tp.typeface = C.BOLD; tp.textSize = context.dp(12f).toFloat(); tp.color = C.MUT
-                    cv.drawText("+${list.size - k} more", x + pad * 3, ly + lh * .72f, tp); break
+        for (i in 0..7) {
+            cellRect(i, cell)
+            val l = cell.left.toFloat(); val t = cell.top.toFloat(); val r = cell.right.toFloat(); val b = cell.bottom.toFloat()
+            if (i < 7 && D.dow(days[i]) >= 5) { fill.color = C.WKND; fill.style = Paint.Style.FILL; c.drawRect(l, t, r, b, fill) }
+            if (i % 4 != 3) c.drawLine(r - .5f, t, r - .5f, b, line)
+            if (i < 4) c.drawLine(l, b - .5f, r, b - .5f, line)
+            if (i == 7) {
+                text(c, "Next Week", l + fpx(16f), t + fpx(44f), 26f, C.INK, 0f)
+                val ns = D.add(start, 7)
+                text(c, "${D.short(ns)}-${D.short(D.add(ns, 6))}", (l + r) / 2, (t + b) / 2 + fpx(6f), 16f, C.MUT, 0f, C.REG, Paint.Align.CENTER)
+                hit(l, t, r, b) { h.onWeek(ns) }
+                continue
+            }
+            val d = days[i]; val list = data[i]
+            // header "Thu 05" (+ blue circle on today)
+            val dow = Fmt.DOW[D.dow(d)]; val num = "%02d".format(D.day(d))
+            tp.textSize = fpx(26f); tp.typeface = C.REG
+            val dx = l + fpx(16f); val base = t + fpx(44f)
+            text(c, dow, dx, base, 26f, C.INK, 0f)
+            val nx = dx + tp.measureText("$dow ") + (if (d == today) fpx(8f) else 0f)
+            if (d == today) {
+                val nw = tp.measureText(num); fill.color = C.BLUE; fill.style = Paint.Style.FILL
+                c.drawCircle(nx + nw / 2, base - fpx(9f), fpx(19f), fill); text(c, num, nx, base, 26f, Color.WHITE, 0f)
+            } else text(c, num, nx, base, 26f, C.INK, 0f)
+            hit(l, t, r - fpx(150f), t + fpx(HEAD)) { h.onDay(d) }
+            // "N events +" / "Add Event +"
+            val label = if (list.isEmpty()) "Add Event" else "${list.size} event" + if (list.size == 1) "" else "s"
+            val px16 = fpx(16f)
+            plus.setBounds((r - fpx(16f) - px16).toInt(), (t + fpx(26f)).toInt(), (r - fpx(16f)).toInt(), (t + fpx(26f) + px16).toInt()); plus.draw(c)
+            text(c, label, r - fpx(42f), t + fpx(40f), 17f, C.MUT, 0f, C.REG, Paint.Align.RIGHT)
+            hit(r - fpx(150f), t, r, t + fpx(HEAD)) { h.onAdd(d) }
+            if (list.isEmpty()) { text(c, "No event", (l + r) / 2, (t + b) / 2 + fpx(20f), 16f, C.MUT2, 0f, C.REG, Paint.Align.CENTER); continue }
+            c.save(); c.clipRect(l, t + fpx(HEAD - 2f), r, b)
+            var y = t + fpx(HEAD) - scroll[i]
+            for (ch in list) {
+                if (y > b) break
+                if (y + fpx(CH) > t) {
+                    rf.set(l + fpx(M), y, r - fpx(M), y + fpx(CH)); bigChip(c, rf, ch, false)
+                    val top = maxOf(y, t + fpx(HEAD)); hit(rf.left, top, rf.right, minOf(rf.bottom, b)) { h.onChip(ch) }
                 }
-                val col = h.color(e)
-                r.set(x + pad * 2, ly, x + cw - pad * 2, ly + lh)
-                p.style = Paint.Style.FILL; p.color = if (e.allDay) col else tint(col, 40)
-                cv.drawRoundRect(r, context.dp(5f).toFloat(), context.dp(5f).toFloat(), p)
-                hits += RectF(r) to e
-                tp.typeface = C.BOLD; tp.textSize = context.dp(12f).toFloat(); tp.color = if (e.allDay) Color.WHITE else C.INK
-                val label = (if (e.allDay) "" else Fmt.hm(e.start) + " ") + e.title
-                val s = TextUtils.ellipsize(label, tp, r.width() - pad * 3, TextUtils.TruncateAt.END)
-                cv.drawText(s, 0, s.length, r.left + pad * 1.5f, r.top + lh * .72f, tp)
-                ly += lh + 2
+                y += fpx(CH + GAP)
             }
+            c.restore()
         }
-    }
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.action == MotionEvent.ACTION_UP) {
-            hits.firstOrNull { it.first.contains(ev.x, ev.y) }?.let { h.onEvent(it.second); return true }
-            val hd = context.dp(26f).toFloat(); val cw = width / 7f; val ch = (height - hd) / 6f
-            if (ev.y > hd) h.onDay(D.add(first, ((ev.y - hd) / ch).toInt().coerceIn(0, 5) * 7 + (ev.x / cw).toInt().coerceIn(0, 6)))
-        }
-        return true
     }
 }
 
-/** One-day timeline (6a–11p) + all-day strip. Overlaps split into columns. */
+/** Stock Month: Sun-first grid, 29px chips, "1More", today number in blue circle. */
 @SuppressLint("ViewConstructor")
-class DayView(private val h: Host, private val day: String) : LinearLayout(h.ctx) {
-    init {
-        orientation = HORIZONTAL
-        val c = context
-        val evs = h.events().filter { it.date <= day && it.endDate >= day }
-        val left = vbox(c).apply { layoutParams = lp(0, MATCH, 2.2f) }
-        addView(left)
-        val head = hbox(c)
-        head.addView(c.text(D.pretty(day), 22f, C.INK, C.BLACK).apply { layoutParams = lp(0, WRAP, 1f) })
-        h.weatherFor(day)?.let { w -> head.addView(c.text("${Parse.wxEmoji(w.code)} ${Parse.wxText(w.code)}  ${w.hi}° / ${w.lo}°" + if (w.pop > 20) "  💧${w.pop}%" else "", 15f, C.MUT)) }
-        left.addView(head)
-        val allDay = evs.filter { it.allDay }
-        if (allDay.isNotEmpty()) left.addView(vbox(c).apply { setPadding(0, c.dp(6), 0, c.dp(4)); allDay.forEach { addView(h.eventRow(it, true)) } })
-        val tl = Timeline(h, evs.filter { !it.allDay })
-        val sv = ScrollView(c).apply { addView(tl); layoutParams = lp(MATCH, 0, 1f).apply { topMargin = c.dp(6) } }
-        left.addView(sv)
-        sv.post { sv.scrollTo(0, tl.yFor(maxOf(7 * 60, (evs.filter { !it.allDay }.minOfOrNull { it.startMin } ?: 8 * 60) - 30))) }
-        // right: agenda-style detail list for the day
-        val right = vbox(c).apply {
-            layoutParams = lp(0, MATCH, 1f).apply { leftMargin = c.dp(14) }
-            setPadding(c.dp(12), c.dp(10), c.dp(12), c.dp(10)); background = round(c, C.DAYS[D.dow(day)], 16f)
-        }
-        right.addView(c.text("${evs.size} event${if (evs.size == 1) "" else "s"}", 18f, C.INK, C.BLACK))
-        val rl = vbox(c); right.addView(ScrollView(c).apply { addView(rl); layoutParams = lp(MATCH, 0, 1f) })
-        evs.sortedWith(compareBy({ !it.allDay }, { it.start })).forEach { rl.addView(h.eventRow(it, true)) }
-        if (evs.isEmpty()) rl.addView(c.text("A free day! 🎈", 16f, C.MUT).apply { setPadding(0, c.dp(10), 0, 0) })
-        addView(right)
-    }
-}
+class MonthView(h: Host, private val month: String) : ChipCanvas(h) {
+    private val first = D.monthStart(month)
+    private val gridStart = D.add(first, -((D.dow(first) + 1) % 7))
+    private val rows = ((D.cal(first).getActualMaximum(Calendar.DAY_OF_MONTH) + (D.dow(first) + 1) % 7) + 6) / 7
+    private val data = (0 until rows * 7).map { h.chips(D.add(gridStart, it)) }
+    private val names = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 
-@SuppressLint("ViewConstructor")
-class Timeline(private val h: Host, private val evs: List<Ev>) : View(h.ctx) {
-    private val startH = 6; private val endH = 23
-    private val hourH = context.dp(58f).toFloat(); private val gutter = context.dp(56f).toFloat()
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG); private val tp = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    private val hits = ArrayList<Pair<RectF, Ev>>()
-    private val layout: List<Triple<Ev, Int, Int>> // ev, column, columns
-    init {
-        val sorted = evs.sortedBy { it.startMin }
-        val out = ArrayList<Triple<Ev, Int, Int>>()
-        var group = ArrayList<Pair<Ev, Int>>(); var groupEnd = -1
-        fun flush() { val n = (group.maxOfOrNull { it.second } ?: 0) + 1; group.forEach { out += Triple(it.first, it.second, n) }; group = ArrayList() }
-        for (e in sorted) {
-            val en = if (e.endMin > e.startMin) e.endMin else e.startMin + 30
-            if (e.startMin >= groupEnd) { flush(); groupEnd = en }
-            val used = group.filter { (g, _) -> (if (g.endMin > g.startMin) g.endMin else g.startMin + 30) > e.startMin }.map { it.second }.toSet()
-            group.add(e to (0..10).first { it !in used }); groupEnd = maxOf(groupEnd, en)
-        }
-        flush(); layout = out
-    }
-    fun yFor(min: Int) = ((min / 60f - startH) * hourH).toInt().coerceAtLeast(0)
-    override fun onMeasure(w: Int, hm: Int) = setMeasuredDimension(MeasureSpec.getSize(w), ((endH - startH) * hourH).toInt() + context.dp(10))
-    override fun onDraw(cv: Canvas) {
+    override fun onDraw(c: Canvas) {
         hits.clear()
-        tp.textSize = context.dp(13f).toFloat(); tp.typeface = C.BOLD; tp.color = C.MUT
-        p.color = C.LIP; p.strokeWidth = context.dp(1.5f).toFloat()
-        for (hr in startH..endH) {
-            val y = (hr - startH) * hourH + context.dp(6)
-            cv.drawText(Fmt.time(hr * 60), context.dp(6f).toFloat(), y + context.dp(4f), tp)
-            cv.drawLine(gutter, y, width.toFloat(), y, p)
+        val HEAD = fpx(62f); val cw = width / 7f; val chh = (height - HEAD) / rows
+        fill.style = Paint.Style.FILL
+        for (col in 0..6) {
+            val l = col * cw
+            if (col == 0 || col == 6) { fill.color = C.WKND; c.drawRect(l, 0f, l + cw, height.toFloat(), fill) }
+            text(c, names[col], l + cw / 2, HEAD / 2 + fpx(9f), 26f, C.INK, 0f, C.REG, Paint.Align.CENTER)
+            if (col > 0) c.drawLine(l, HEAD, l, height.toFloat(), line)
         }
-        if (h.events().isNotEmpty() || true) {
-            val now = java.util.Calendar.getInstance(); val nm = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
-            if (nm in startH * 60..endH * 60 && evs.firstOrNull()?.date == D.today()) {
-                val y = (nm / 60f - startH) * hourH + context.dp(6); p.color = C.ACC; p.strokeWidth = context.dp(2.5f).toFloat()
-                cv.drawLine(gutter - context.dp(6), y, width.toFloat(), y, p)
+        c.drawLine(0f, HEAD - .5f, width.toFloat(), HEAD - .5f, line)
+        val pitch = fpx(33f); val chipH = fpx(29f)
+        for (i in 0 until rows * 7) {
+            val d = D.add(gridStart, i); val col = i % 7; val row = i / 7
+            val l = col * cw; val t = HEAD + row * chh; val b = t + chh
+            if (row > 0) c.drawLine(l, t, l + cw, t, line)
+            val inMonth = d.substring(0, 7) == first.substring(0, 7)
+            val n = if (D.day(d) == 1) "${Fmt.MON[D.month(d)]} 1" else D.day(d).toString()
+            if (d == today) { fill.color = C.BLUE; c.drawCircle(l + cw / 2, t + fpx(17f), fpx(13f), fill); text(c, n, l + cw / 2, t + fpx(23f), 16f, Color.WHITE, 0f, C.MED, Paint.Align.CENTER) }
+            else text(c, n, l + cw / 2, t + fpx(23f), 16f, if (inMonth) C.MUT else C.MUT2, 0f, C.REG, Paint.Align.CENTER)
+            hit(l, t, l + cw, b) { h.onDay(d) }
+            val list = data[i]; if (list.isEmpty()) continue
+            val fit = ((chh - fpx(36f) - fpx(22f)) / pitch).toInt().coerceAtLeast(1)
+            val show = if (list.size > fit + 0 && list.size * pitch > chh - fpx(36f)) fit else list.size
+            val past = d < today
+            if (past) c.saveLayerAlpha(l, t, l + cw, b, 150)
+            var y = t + fpx(36f)
+            for (k in 0 until show) {
+                rf.set(l + fpx(2f), y, l + cw - fpx(4f), y + chipH); smallChip(c, rf, list[k])
+                val ch = list[k]; hit(rf.left, rf.top, rf.right, rf.bottom) { h.onChip(ch) }
+                y += pitch
             }
+            if (show < list.size) text(c, "${list.size - show}More", l + fpx(8f), y + fpx(16f), 16f, C.MUT, 0f)
+            if (past) c.restore()
         }
-        val w = width - gutter - context.dp(6)
-        for ((e, col, n) in layout) {
-            val en = if (e.endMin > e.startMin) e.endMin else e.startMin + 30
-            val top = (e.startMin / 60f - startH) * hourH + context.dp(7); val bot = (en / 60f - startH) * hourH + context.dp(5)
-            val left = gutter + context.dp(4) + col * w / n; val r = RectF(left, top.coerceAtLeast(0f), left + w / n - context.dp(4), bot)
-            val c = h.color(e)
-            p.style = Paint.Style.FILL; p.color = tint(c, 46); cv.drawRoundRect(r, context.dp(9f).toFloat(), context.dp(9f).toFloat(), p)
-            p.color = c; cv.drawRoundRect(RectF(r.left, r.top, r.left + context.dp(5), r.bottom), context.dp(3f).toFloat(), context.dp(3f).toFloat(), p)
-            tp.color = C.INK; tp.typeface = C.BOLD; tp.textSize = context.dp(15f).toFloat()
-            val t = TextUtils.ellipsize(e.title, tp, r.width() - context.dp(14), TextUtils.TruncateAt.END)
-            cv.drawText(t, 0, t.length, r.left + context.dp(10), r.top + context.dp(19), tp)
-            if (r.height() > context.dp(38)) {
-                tp.textSize = context.dp(12.5f).toFloat(); tp.color = C.MUT
-                val names = e.profiles.joinToString(" + ") { h.prof(it).name }
-                cv.drawText("${Fmt.hm(e.start)}–${Fmt.hm(e.end)} · $names", r.left + context.dp(10), r.top + context.dp(36), tp)
-            }
-            hits += r to e
-        }
-    }
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.action == MotionEvent.ACTION_UP) hits.lastOrNull { it.first.contains(ev.x, ev.y) }?.let { h.onEvent(it.second) }
-        return true
     }
 }
 
-/** Two-week agenda list. */
+/** Stock Day: full-width chip list on the left, mini month on the right. */
 @SuppressLint("ViewConstructor")
-class AgendaView(h: Host, start: String, days: Int) : ScrollView(h.ctx) {
-    init {
-        val c = context; val list = vbox(c); addView(list); val evs = h.events(); val today = D.today()
-        var any = false
-        for (i in 0 until days) {
-            val d = D.add(start, i)
-            val todays = evs.filter { it.date <= d && it.endDate >= d }.sortedWith(compareBy({ !it.allDay }, { it.start }))
-            if (todays.isEmpty()) continue
-            any = true
-            val head = hbox(c).apply { setPadding(c.dp(4), c.dp(14), 0, c.dp(2)); setOnClickListener { h.onDay(d) } }
-            head.addView(c.text((if (d == today) "TODAY · " else "") + D.pretty(d).uppercase(), 14f, if (d == today) C.ACC else C.MUT, C.BLACK).apply { layoutParams = lp(0, WRAP, 1f) })
-            h.weatherFor(d)?.let { w -> head.addView(c.text("${Parse.wxEmoji(w.code)} ${w.hi}°/${w.lo}°", 13f, C.MUT)) }
-            list.addView(head)
-            todays.forEach { list.addView(h.eventRow(it, true)) }
+class DayView(h: Host, private val day: String) : ChipCanvas(h) {
+    private val list = h.chips(day)
+    private var sc = 0f
+    private val mini = D.monthStart(day)
+    private val miniStart = D.add(mini, -((D.dow(mini) + 1) % 7))
+    private val SIDE = 362f
+
+    override fun onDrag(dy: Float, x: Float, y: Float) {
+        val content = fpx(62f) + list.size * fpx(80f)
+        sc = (sc - dy).coerceIn(0f, (content - height).coerceAtLeast(0f)); invalidate()
+    }
+
+    override fun onDraw(c: Canvas) {
+        hits.clear()
+        val sx = width - fpx(SIDE)
+        c.drawLine(sx, 0f, sx, height.toFloat(), line)
+        // list
+        c.save(); c.clipRect(0f, 0f, sx, height.toFloat())
+        val title = if (day == today) "Today" else D.pretty(day)
+        text(c, title, fpx(16f), fpx(44f) - sc, 26f, C.INK, 0f)
+        var y = fpx(62f) - sc
+        for (ch in list) {
+            rf.set(fpx(8f), y, sx - fpx(14f), y + fpx(76f)); bigChip(c, rf, ch, true)
+            hit(rf.left, rf.top, rf.right, rf.bottom) { h.onChip(ch) }
+            y += fpx(80f)
         }
-        if (!any) list.addView(c.text("Nothing coming up 🎉", 18f, C.MUT).apply { setPadding(c.dp(8), c.dp(20), 0, 0) })
+        if (list.isEmpty()) text(c, "No event", sx / 2, height / 2f, 16f, C.MUT2, 0f, C.REG, Paint.Align.CENTER)
+        c.restore()
+        // mini month
+        text(c, "${Fmt.MONTH[D.month(day)]} ${day.take(4)}", sx + fpx(18f), fpx(44f), 26f, C.INK, 0f)
+        val cw = (fpx(SIDE) - fpx(16f)) / 7f; val x0 = sx + fpx(8f)
+        val dn = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+        for (k in 0..6) text(c, dn[k], x0 + cw * k + cw / 2, fpx(104f), 14f, C.INK, 0f, C.REG, Paint.Align.CENTER)
+        for (i in 0 until 42) {
+            val d = D.add(miniStart, i); if (i >= 35 && d.substring(0, 7) != mini.substring(0, 7)) break
+            val cx = x0 + cw * (i % 7) + cw / 2; val cy = fpx(158f) + (i / 7) * fpx(61f)
+            val inM = d.substring(0, 7) == mini.substring(0, 7)
+            val col = if (d == today) Color.WHITE else if (!inM || i % 7 == 0 || i % 7 == 6) C.MUT2 else C.INK
+            if (d == today) { fill.color = C.BLUE; fill.style = Paint.Style.FILL; c.drawCircle(cx, cy - fpx(6f), fpx(16f), fill) }
+            else if (d == day) { fill.color = C.FIELD; fill.style = Paint.Style.FILL; c.drawCircle(cx, cy - fpx(6f), fpx(16f), fill) }
+            text(c, D.day(d).toString(), cx, cy, 16f, col, 0f, if (inM && col == C.INK) C.MED else C.REG, Paint.Align.CENTER)
+            hit(cx - cw / 2, cy - fpx(30f), cx + cw / 2, cy + fpx(25f)) { h.onDay(d) }
+        }
+    }
+}
+
+/** Stock Schedule: 3-day columns, all-day strip on top, hourly timeline below (drag to scroll). */
+@SuppressLint("ViewConstructor")
+class ScheduleView(h: Host, private val start: String, private val n: Int = 3) : ChipCanvas(h) {
+    private val days = (0 until n).map { D.add(start, it) }
+    private val data = days.map { h.chips(it) }
+    private val allDay = data.map { l -> l.filter { it.allDay || it.startMin < 0 } }
+    private val timed = data.map { l -> l.filter { !it.allDay && it.startMin >= 0 } }
+    private val HOUR = 80f; private val LEFT = 92f
+    private var sc = -1f
+
+    private fun topH() = fpx(84f) + (allDay.maxOfOrNull { it.size } ?: 0).coerceAtMost(4) * fpx(32f) + fpx(10f)
+    override fun onDrag(dy: Float, x: Float, y: Float) {
+        val max = (24 * fpx(HOUR) - (height - topH())).coerceAtLeast(0f)
+        sc = (sc - dy).coerceIn(0f, max); invalidate()
+    }
+
+    override fun onDraw(c: Canvas) {
+        hits.clear()
+        val top = topH(); val cw = (width - fpx(LEFT)) / n
+        if (sc < 0) sc = ((nowMin / 60 - 2).coerceAtLeast(0) * fpx(HOUR) + fpx(12f)).coerceIn(0f, (24 * fpx(HOUR) - (height - top)).coerceAtLeast(0f))
+        for (k in 0 until n) {
+            val l = fpx(LEFT) + k * cw; val d = days[k]
+            if (k > 0) c.drawLine(l, 0f, l, height.toFloat(), line)
+            text(c, Fmt.DOW[D.dow(d)], l + cw / 2, fpx(32f), 26f, C.INK, 0f, C.REG, Paint.Align.CENTER)
+            if (d == today) { fill.color = C.BLUE; fill.style = Paint.Style.FILL; c.drawCircle(l + cw / 2, fpx(58f), fpx(18f), fill) }
+            text(c, D.day(d).toString(), l + cw / 2, fpx(67f), 26f, if (d == today) Color.WHITE else C.INK, 0f, C.REG, Paint.Align.CENTER)
+            hit(l, 0f, l + cw, fpx(80f)) { h.onDay(d) }
+            var y = fpx(84f)
+            for (ch in allDay[k].take(4)) {
+                rf.set(l + fpx(2f), y, l + cw - fpx(4f), y + fpx(28f)); smallChip(c, rf, ch, false, 15f)
+                hit(rf.left, rf.top, rf.right, rf.bottom) { h.onChip(ch) }; y += fpx(32f)
+            }
+        }
+        fill.color = Color.parseColor("#E9ECF1"); c.drawRect(0f, top - fpx(6f), width.toFloat(), top, fill)
+        c.save(); c.clipRect(0f, top, width.toFloat(), height.toFloat())
+        val y0 = top - sc + fpx(12f)
+        for (hr in 0..23) {
+            val y = y0 + hr * fpx(HOUR)
+            if (y < top - fpx(HOUR) || y > height) continue
+            c.drawLine(fpx(LEFT), y, width.toFloat(), y, line)
+            text(c, Fmt.hourLabel(hr), fpx(10f), y + fpx(5f), 14f, C.MUT, 0f)
+        }
+        for (k in 0 until n) {
+            val l = fpx(LEFT) + k * cw
+            for (ch in timed[k]) {
+                val t = y0 + ch.startMin / 60f * fpx(HOUR); val e = y0 + (if (ch.endMin > ch.startMin) ch.endMin else ch.startMin + 60) / 60f * fpx(HOUR)
+                rf.set(l + fpx(2f), t, l + cw - fpx(4f), maxOf(e, t + fpx(30f))); chipBg(c, rf, ch, 6f)
+                text(c, ch.title, rf.left + fpx(4f), t + fpx(20f), 15f, C.INK, rf.width() - fpx(8f))
+                if (rf.height() > fpx(46f)) text(c, ch.sub(), rf.left + fpx(4f), t + fpx(42f), 13f, C.MUT, rf.width() - fpx(8f))
+                if (rf.bottom > top) hit(rf.left, maxOf(rf.top, top), rf.right, rf.bottom) { h.onChip(ch) }
+            }
+            if (days[k] == today) {
+                val y = y0 + nowMin / 60f * fpx(HOUR); fill.color = C.BLUE
+                c.drawCircle(l + fpx(2f), y, fpx(4f), fill); c.drawRect(l, y - fpx(1f), l + cw, y + fpx(1f), fill)
+            }
+        }
+        c.restore()
     }
 }

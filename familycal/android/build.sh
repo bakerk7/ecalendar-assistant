@@ -5,7 +5,7 @@ export JAVA_HOME=~/android/jdk PATH=~/android/jdk/bin:$PATH
 BT=~/android/build-tools/34.0.0; JAR=~/android/platforms/android-29/android.jar; KC=~/android/kotlinc
 STD=$KC/lib/kotlin-stdlib.jar
 rm -rf build; mkdir -p build/classes build/dex
-$BT/aapt2 link -o build/res.apk -I $JAR --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 29
+$BT/aapt2 link -o build/res.apk -I $JAR --manifest AndroidManifest.xml -A assets --min-sdk-version 26 --target-sdk-version 29
 $KC/bin/kotlinc -nowarn -jvm-target 1.8 -no-reflect -cp $JAR -d build/classes $(find src -name '*.kt') 2>&1 | grep -v '^warning' || true
 test -f build/classes/com/bakerk7/familycalendar/MainActivity.class
 # R8 shrinks kotlin-stdlib down to what we use (smaller dex = less RAM on the tablet).
