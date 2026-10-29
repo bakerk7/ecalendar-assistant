@@ -38,12 +38,11 @@ class MainActivity : Activity(), Host {
     private var events = listOf<Ev>()
     private var chores = listOf<Chore>()
     private var rewards = listOf<Reward>()
-    private var lists = listOf<FList>()
     private var cals = listOf<Cal>()
     private var weather: Weather? = null
     private var toTag = 0
     private var offline = false
-    private var page = "cal"            // cal | chores | rewards | lists
+    private var page = "cal"            // cal | chores | rewards
     private var mode = "week"           // schedule | day | week | month
     private var anchor = D.today()
     private var choresDate = D.today()
@@ -205,7 +204,6 @@ class MainActivity : Activity(), Host {
         item("cal", "icon_home_cal") { page = "cal"; if (mode == "week" && anchor == D.today()) mode = "month"; render() }
         item("chores", "icon_home_chore") { page = "chores"; if (choresDate != D.today()) { choresDate = D.today(); lastJson = 0; refresh() }; render() }
         item("rewards", "icon_home_reward") { page = "rewards"; render() }
-        item("lists", "icon_home_list") { page = "lists"; render() }
         rail.addView(View(this), lp(1, 0, 1f))
         item("sleep", "icon_home_sleep") { sleepCard() }
         item("more", "icon_home_more") { moreMenu() }
@@ -246,7 +244,6 @@ class MainActivity : Activity(), Host {
         events = Parse.events(j.getJSONArray("items"))
         chores = Parse.chores(j.getJSONArray("chores"))
         rewards = Parse.rewards(j.getJSONArray("rewards"))
-        lists = Parse.lists(j.getJSONArray("lists"))
         cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
@@ -302,7 +299,6 @@ class MainActivity : Activity(), Host {
         val v: View = when (page) {
             "chores" -> choresPage()
             "rewards" -> rewardsPage()
-            "lists" -> listsPage()
             else -> when (mode) {
                 "day" -> DayView(this, anchor)
                 "month" -> MonthView(this, anchor)
@@ -325,8 +321,7 @@ class MainActivity : Activity(), Host {
             add(choresDatePill())
         } else {
             add(pill("More", chevron = true) { moreMenu() })
-            add(pill(if (page == "lists") "${Fmt.DOWL[D.dow(D.today())]}, ${Fmt.MONTH[D.month(D.today())]} ${D.day(D.today())}"
-                     else "${Fmt.DOWL[D.dow(D.today())]}, ${Fmt.MONTH[D.month(D.today())]} ${D.day(D.today())}") {})
+            add(pill("${Fmt.DOWL[D.dow(D.today())]}, ${Fmt.MONTH[D.month(D.today())]} ${D.day(D.today())}") {})
         }
     }
 
@@ -376,7 +371,7 @@ class MainActivity : Activity(), Host {
         }
     }
 
-    // ================================================================= chores / rewards / lists pages
+    // ================================================================= chores / rewards pages
     private fun columns(n: Int, gap: Int = 14): LinearLayout = hbox(this, Gravity.TOP).apply { setPadding(px(10), px(6), px(10), px(14)); tag = gap }
 
     private fun colHeader(p: Profile, right: View?, barDone: Int, barTotal: Int): LinearLayout {
@@ -490,89 +485,6 @@ class MainActivity : Activity(), Host {
         api.post("/api/rewards/${r.id}/redeem", JSONObject().put("profile_id", p.id), { toast("Enjoy, ${p.name}!"); refresh() }, { toast(it) })
     }
 
-    private val LIST_COLORS = intArrayOf(Color.parseColor("#4DBAFD"), Color.parseColor("#F05A5A"), Color.parseColor("#17C096"), Color.parseColor("#E264FF"))
-    private fun listsPage(): View {
-        val cols = columns(lists.size + 1)
-        for ((i, l) in lists.withIndex()) {
-            val c = LIST_COLORS[i % LIST_COLORS.size]
-            val col = vbox(this).apply { background = round(mix(c, .9f), 10f) }
-            val head = hbox(this).apply { setPadding(px(14), px(16), px(14), px(10)) }
-            head.addView(text(l.name.take(1).uppercase(), 20f, Color.WHITE, C.MED).apply { gravity = Gravity.CENTER; background = oval(c) }, lp(px(40), px(40)))
-            head.addView(text(l.name, 20f, C.INK, C.MED).apply { setPadding(px(10), 0, 0, 0) }, lp(0, WRAP, 1f))
-            head.addView(text("${l.items.count { !it.done }}", 15f, C.MUT))
-            head.addView(IconView(this, Ico(Ico.PENCIL, C.MUT, 22f, 1.6f), px(22)).apply { setOnClickListener { listMenu(it, l) } }, lp(px(22), px(22)).apply { leftMargin = px(14) })
-            head.setOnLongClickListener { listMenu(it, l); true }
-            col.addView(head)
-            val add = EditText(this).apply {
-                hint = "+ Add item"; setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f)); setSingleLine()
-                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-                background = round(Color.WHITE, 8f); setPadding(px(12), px(10), px(12), px(10))
-            }
-            add.setOnEditorActionListener { _, _, _ ->
-                val t = add.text.toString().trim()
-                if (t.isNotEmpty()) { add.setText(""); hideKb(add); api.post("/api/lists/${l.id}/items", JSONObject().put("text", t), { refresh() }, { toast(it) }) }
-                true
-            }
-            col.addView(add, lp(MATCH, WRAP).apply { setMargins(px(10), 0, px(10), px(8)) })
-            if (l.items.isEmpty()) col.addView(emptyState("emo${i % 3}", "No checklist to complete today"), lp(MATCH, 0, 1f))
-            else {
-                val list = vbox(this).apply { setPadding(px(10), 0, px(10), px(10)) }
-                for (it in l.items.sortedBy { it.done }) {
-                    val row = hbox(this).apply { background = round(Color.WHITE, 8f); setPadding(px(14), px(12), px(14), px(12)) }
-                    row.addView(text(it.text, 17f, if (it.done) C.MUT2 else C.INK).apply {
-                        if (it.done) paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG }, lp(0, WRAP, 1f))
-                    row.addView(IconView(this, Ico(Ico.CHECK, if (it.done) Color.WHITE else Color.TRANSPARENT, 22f, 2.2f), px(22)).apply {
-                        background = if (it.done) oval(c) else oval(Color.WHITE, Color.parseColor("#C9CED6"), 1f) })
-                    row.setOnClickListener { _ ->
-                        it.done = !it.done; render()
-                        api.call("PATCH", "/api/items/${it.id}", JSONObject().put("done", if (it.done) 1 else 0), { }, { e -> toast(e) })
-                    }
-                    list.addView(row, lp(MATCH, WRAP).apply { bottomMargin = px(8) })
-                }
-                if (l.items.any { it.done }) list.addView(greyButton("Clear checked", 15f) {
-                    api.post("/api/lists/${l.id}/clear-done", null, { refresh() }, { toast(it) }) })
-                col.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }, lp(MATCH, 0, 1f))
-            }
-            cols.addView(col, lp(0, MATCH, 1f).apply { if (i > 0) leftMargin = px(14) })
-        }
-        // stock "+ Add List" column
-        if (lists.size < 6) {
-            val col = vbox(this).apply { background = round(C.FIELD, 10f); setPadding(px(14), px(16), px(14), px(14)) }
-            col.addView(text("+ Add List", 18f, C.BLUE, C.MED).apply { setPadding(px(4), px(8), 0, px(8)); setOnClickListener { nameList(null) } })
-            cols.addView(col, lp(0, MATCH, 1f).apply { if (lists.isNotEmpty()) leftMargin = px(14) })
-        }
-        return cols
-    }
-
-    private fun listMenu(a: View, l: FList) = dropdown(a, px(200)) { b ->
-        b.addView(menuRow("Rename", false) { nameList(l) })
-        b.addView(menuRow("Delete list", false) {
-            if (lists.size <= 1) { toast("One list has to stay active."); return@menuRow }
-            confirm("Delete “${l.name}”?", "This removes the list and its ${l.items.size} item(s).", "Delete") {
-                api.call("DELETE", "/api/lists/${l.id}", null, { toast("Deleted"); refresh() }, { toast(it) }) } })
-    }
-
-    /** Create (l == null) or rename a list: small stock-style card with one field. */
-    private fun nameList(l: FList?) {
-        val s = scrim()
-        val c = card(px(520)).apply { setPadding(px(28), px(24), px(28), px(24)) }
-        val h = hbox(this); h.addView(text(if (l == null) "Add List" else "Rename List", 22f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
-        val et = EditText(this).apply { hint = "List name"; setText(l?.name ?: ""); setSingleLine(); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(17f))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            background = round(C.FIELD, 8f); setPadding(px(14), px(14), px(14), px(14)) }
-        c.addView(et, lp(MATCH, WRAP).apply { topMargin = px(18) })
-        val b = hbox(this, Gravity.END).apply { setPadding(0, px(22), 0, 0) }
-        b.addView(greyButton("Cancel") { hideKb(et); closeOverlay() })
-        b.addView(blueButton("Save") {
-            val n = et.text.toString().trim(); if (n.isEmpty()) { toast("Add a name"); return@blueButton }
-            hideKb(et); closeOverlay()
-            if (l == null) api.post("/api/lists", JSONObject().put("name", n), { refresh() }, { toast(it) })
-            else api.call("PATCH", "/api/lists/${l.id}", JSONObject().put("name", n), { refresh() }, { toast(it) })
-        }.margins(px(12)))
-        c.addView(b, lp(MATCH, WRAP)); s.addView(c)
-        et.requestFocus()
-    }
-
     // ================================================================= overlays (in-tree, no Dialog windows)
     private fun closeOverlay() = ovl.removeAllViews()
     private fun scrim(dim: Boolean = true): FrameLayout = FrameLayout(this).apply {
@@ -625,7 +537,6 @@ class MainActivity : Activity(), Host {
 
     /** Stock FAB menu: white "Event" / "Task" bubbles above a blue X (stroke instead of shadow). */
     private fun fabMenu() {
-        if (page == "lists") { toast("Type in a list's “+ Add item” box"); return }
         val s = scrim(false)
         fun bubble(label: String, bottom: Int, f: () -> Unit) = s.addView(text(label, 16f).apply {
             gravity = Gravity.CENTER; background = pressable(oval(Color.WHITE, Color.parseColor("#E1E4EA"), 1f), oval(C.FIELD, Color.parseColor("#E1E4EA"), 1f))
@@ -1177,9 +1088,6 @@ class MainActivity : Activity(), Host {
                 head("Tasks")
                 row("Show chores on calendar", sw("chores_on_cal", true))
                 row("Star values", value("")) { settings("Stars") }
-                head("Lists")
-                for (l in lists) row(l.name, value("${l.items.count { !it.done }} open"))  { closeOverlay(); page = "lists"; render() }
-                row("+ Add List", null) { nameList(null) }
             }
             "Stars" -> {
                 // stock "assign star values": every task once (multi-person copies grouped), sortable by size
