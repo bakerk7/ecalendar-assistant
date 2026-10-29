@@ -1,3 +1,19 @@
+# Google setup — service account (primary)
+
+1. Google Cloud console → (any project) → enable **Google Calendar API**.
+2. IAM → Service accounts → Create → Keys → Add key → JSON. Keep the file private.
+3. In Google Calendar (as you@example.com) → *Shared Calendar* → Settings → Share with specific people →
+   add the service-account email (`…@….iam.gserviceaccount.com`) with **Make changes to events**.
+4. On the box: `export GOOGLE_SA_JSON="$(cat key.json)"` (or a path to the file), then run
+   `/workspace/familycalendar/install-sa.sh` (`MIGRATE=1` to also move native tablet events into Google).
+   The script never prints the key: it streams it into the helper's `/data/google_sa.json` (mode 600),
+   restarts the helper, lists calendars visible to the SA and runs the extendedProperties survival test.
+5. Shared calendar id is auto-discovered from the import (`xxxxxxx…@group.calendar.google.com`);
+   override with `FAMCAL_SHARED_CAL_ID` in the helper `.env`.
+6. Soccer isn't shared with the SA; it is read (read-only) from its ICS URL via `FAMCAL_SOCCER_ICS` in `.env`.
+
+If `google_sa.json` is absent, the helper falls back to the OAuth token flow below.
+
 # Connect Google Calendar (one time, ~10 minutes)
 
 Until this is done the helper runs on a **fixture** copy of the events imported from the

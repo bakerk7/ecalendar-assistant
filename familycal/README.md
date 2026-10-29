@@ -3,7 +3,7 @@
 * `server/` is the FastAPI helper (container `familycal`, port **8091**, ~40 MiB). It handles profiles, multi-person
   tags + auto-rules, chores/stars/rewards, lists, weather (Open-Meteo, your town), a phone web page at `/`,
   and a gateway-compatible `/events` `/profiles` `/categories` API so routines can switch by base URL.
-  Event source is behind `CalendarSource`: `FixtureSource` (now) and `GoogleSource` (after GOOGLE-SETUP.md).
+  Event source is behind `CalendarSource`: `FixtureSource` (now) and `GoogleSource` (after GOOGLE-SETUP.md (service account primary, OAuth fallback)).
   * Tests: `cd server && python -m pytest`
   * Import: `python -m famcal.importer calendar_db --data /data`
   * Deploy: `~/docker-stacks/familycal` (`docker compose up -d --build`), with `.env` holding `FAMCAL_API_KEY`.

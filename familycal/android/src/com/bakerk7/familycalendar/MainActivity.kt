@@ -97,7 +97,11 @@ class MainActivity : Activity(), Host {
         override fun run() { updateClock(); ui.postDelayed(this, 15_000) }
     }
     private val poll = object : Runnable {
-        override fun run() { refresh(false); ui.postDelayed(this, 60_000) }
+        override fun run() {
+            // don't rebuild the panels under someone's fingers (typing in the list box)
+            if (currentFocus !is EditText) refresh(false)
+            ui.postDelayed(this, 60_000)
+        }
     }
     override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000) }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll) }
@@ -378,7 +382,10 @@ class MainActivity : Activity(), Host {
         }
         val go = {
             val t = et.text.toString().trim()
-            if (t.isNotEmpty()) api.post("/api/lists/${cur.id}/items", JSONObject().put("text", t), { refresh(false) }, { toast(it) })
+            if (t.isNotEmpty()) {
+                et.setText("")
+                api.post("/api/lists/${cur.id}/items", JSONObject().put("text", t), { et.clearFocus(); hideKb(et); refresh(false) }, { toast(it) })
+            }
         }
         et.setOnEditorActionListener { _, _, _ -> go(); true }
         add.addView(et, lp(0, WRAP, 1f)); add.addView(button("Add", C.ACC, Color.WHITE, C.ACCD, 15f) { go() }.margins(dp(6)))
@@ -422,7 +429,13 @@ class MainActivity : Activity(), Host {
         draw(); return row
     }
 
-    private fun dialogBox(): LinearLayout = vbox(this).apply { setPadding(dp(24), dp(20), dp(24), dp(8)); setBackgroundColor(C.BG) }
+    private fun dialogBox(): LinearLayout = vbox(this).apply { setPadding(dp(24), dp(20), dp(24), dp(8)) }
+
+    /** Show with the cream rounded card look instead of the stock white dialog. */
+    private fun AlertDialog.styled(): AlertDialog {
+        window?.setBackgroundDrawable(round(context, C.BG, 22f))
+        return this
+    }
 
     private fun eventDialog(e: Ev) {
         val box = dialogBox()
@@ -441,7 +454,7 @@ class MainActivity : Activity(), Host {
         val d = AlertDialog.Builder(this).setView(box)
             .setPositiveButton("Done", null)
             .setNeutralButton("Edit", null)
-            .setNegativeButton("Delete", null).create()
+            .setNegativeButton("Delete", null).create().styled()
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (sel != orig) saveTags(e, sel) else Unit
@@ -481,8 +494,8 @@ class MainActivity : Activity(), Host {
         var date = e?.date ?: if (mode == "day") anchor else D.today()
         var allDay = e?.allDay ?: false
         val now = Calendar.getInstance()
-        var sMin = e?.startMin?.takeIf { it >= 0 } ?: ((now.get(Calendar.HOUR_OF_DAY) + 1) * 60)
-        var eMin = e?.endMin?.takeIf { it >= 0 } ?: (sMin + 60)
+        var sMin = e?.startMin?.takeIf { it >= 0 } ?: minOf((now.get(Calendar.HOUR_OF_DAY) + 1) * 60, 22 * 60)
+        var eMin = e?.endMin?.takeIf { it > 0 } ?: minOf(sMin + 60, 23 * 60 + 59)
         val row = hbox(this).apply { setPadding(0, dp(12), 0, 0) }
         lateinit var dBtn: TextView; lateinit var sBtn: TextView; lateinit var eBtn: TextView
         fun upd() {
@@ -508,7 +521,7 @@ class MainActivity : Activity(), Host {
         val sel = (e?.profiles?.filter { it != "family" } ?: filter.toList()).toMutableSet()
         box.addView(chips(sel))
         upd()
-        val d = AlertDialog.Builder(this).setView(box).setPositiveButton("Save", null).setNegativeButton("Cancel", null).create()
+        val d = AlertDialog.Builder(this).setView(box).setPositiveButton("Save", null).setNegativeButton("Cancel", null).create().styled()
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val t = title.text.toString().trim()
@@ -543,7 +556,7 @@ class MainActivity : Activity(), Host {
             }
             if (evs.isEmpty()) list.addView(text("All tagged 🎉", 17f, C.MUT))
             box.addView(ScrollView(this).apply { addView(list) }, lp(MATCH, dp(420)))
-            dlg = AlertDialog.Builder(this).setView(box).setPositiveButton("Close", null).show()
+            dlg = AlertDialog.Builder(this).setView(box).setPositiveButton("Close", null).create().styled().also { it.show() }
         }, { toast(it) })
     }
 
@@ -585,6 +598,12 @@ class MainActivity : Activity(), Host {
         // date rolled over -> jump views to today once
         if (prefs.getString("last_day", "") != today) { prefs.edit().putString("last_day", today).apply(); if (mode != "month") anchor = today; refresh(true) }
     }
+
+    /** Wall display: Back must never drop to the launcher (open dialogs still close on Back). */
+    @Deprecated("kiosk") override fun onBackPressed() { if (mode != "week") { mode = "week"; anchor = D.today(); refresh(true) } }
+
+    private fun hideKb(v: View) =
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 }

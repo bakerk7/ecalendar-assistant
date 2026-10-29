@@ -98,13 +98,13 @@ def router(data_dir, deps, svc):
     @r.post("/oauth/calendars", dependencies=deps)
     def pick(body: dict = Body(...)):
         """{shared: calendarId, soccer: calendarId} -> switch the service to Google and sync."""
-        from .sources import GoogleSource
+        from .sources import GoogleSource, RoutingSource
         if not os.path.exists(tpath):
             raise HTTPException(400, "sign in first")
         for cid in ("shared", "soccer"):
             if body.get(cid):
                 svc.db.x("UPDATE calendars SET google_id=? WHERE id=?", (body[cid], cid))
-        svc.source = GoogleSource(tpath)
+        svc.source = RoutingSource(GoogleSource(tpath))
         moved = 0
         if body.get("migrate_native", True):
             from .core import migrate_native

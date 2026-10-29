@@ -1,6 +1,6 @@
 """Business logic: sync with the calendar source, tagging, recurrence expansion,
 chores/stars/rewards, lists."""
-import json, logging, re, threading, time, urllib.request
+import json, os, logging, re, threading, time, urllib.request
 from datetime import date, datetime, timedelta
 from dateutil.rrule import rrulestr
 from zoneinfo import ZoneInfo
@@ -58,6 +58,15 @@ class Service:
             for i, (n, e) in enumerate([("Groceries", "🛒"), ("To-Do", "✅"), ("Packing", "🎒")]):
                 self.db.x("INSERT INTO lists(id,name,emoji,sort) VALUES(?,?,?,?)", (new_id(), n, e, i))
         rules.seed_rules(self.db)
+        self.apply_env_calendars()
+
+    def apply_env_calendars(self):
+        """FAMCAL_SHARED_CAL_ID (Google calendarId; a service account needs it explicitly) and
+        FAMCAL_SOCCER_ICS (public team feed URL, read via IcsSource) override the DB."""
+        for cid, env in (("shared", "FAMCAL_SHARED_CAL_ID"), ("soccer", "FAMCAL_SOCCER_ICS")):
+            v = os.environ.get(env, "").strip()
+            if v:
+                self.db.x("UPDATE calendars SET google_id=? WHERE id=?", (v, cid))
 
     def profiles(self, with_family=True):
         rows = self.db.q("SELECT id,name,color,emoji,sort,kind,ecal_id FROM profiles ORDER BY sort")
@@ -73,6 +82,8 @@ class Service:
         return self.db.q("SELECT * FROM calendars")
 
     def _gcal(self, cal):
+        if self.source.name == "fixture":
+            return cal["id"]
         return cal.get("google_id") or cal["id"]
 
     # ------------------------------------------------------------ sync
@@ -87,7 +98,7 @@ class Service:
                         seen.add(ev["id"])
                         n += self._upsert(cal, ev)
                     if full:
-                        self.db.x(f"UPDATE events SET deleted=1 WHERE cal=? AND deleted=0 AND id NOT IN ({','.join('?'*len(seen)) or 'NULL'})",
+                        self.db.x(f"UPDATE events SET deleted=1 WHERE cal=? AND deleted=0 AND origin != 'ecal-native' AND id NOT IN ({','.join('?'*len(seen)) or 'NULL'})",
                                   (cal["id"], *seen))
                 self.last_sync, self.last_sync_error = now(), None
                 return n

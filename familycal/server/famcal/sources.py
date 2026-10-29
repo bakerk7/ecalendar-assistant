@@ -175,10 +175,16 @@ class GoogleSource(CalendarSource):
     name = "google"
     API = "https://www.googleapis.com/calendar/v3"
 
+    SCOPE = "https://www.googleapis.com/auth/calendar"
+
     def __init__(self, token_path, http=None):
+        """token_path: a service-account key JSON (type=service_account, preferred) or
+        an OAuth token file {client_id, client_secret, refresh_token} (fallback)."""
         self.token_path = token_path
         with open(token_path) as f:
-            self.cfg = json.load(f)  # client_id, client_secret, refresh_token
+            self.cfg = json.load(f)
+        self.mode = "service_account" if self.cfg.get("type") == "service_account" else "oauth"
+        self.name = "google-sa" if self.mode == "service_account" else "google"
         self._tok, self._exp = None, 0
         self.sync_tokens = {}
         self.http = http or self._urlopen
@@ -198,8 +204,36 @@ class GoogleSource(CalendarSource):
             except ValueError:
                 return e.code, {}
 
+    def _sa_assertion(self):
+        """RS256 JWT for the OAuth2 JWT-bearer grant (no user impersonation: the SA acts as
+        itself on calendars that were shared with its email)."""
+        import base64
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+        now_ = int(time.time())
+        head = {"alg": "RS256", "typ": "JWT"}
+        if self.cfg.get("private_key_id"):
+            head["kid"] = self.cfg["private_key_id"]
+        claims = {"iss": self.cfg["client_email"], "scope": self.SCOPE,
+                  "aud": self.cfg.get("token_uri", "https://oauth2.googleapis.com/token"),
+                  "iat": now_, "exp": now_ + 3600}
+        signing = b64(json.dumps(head).encode()) + b"." + b64(json.dumps(claims).encode())
+        key = serialization.load_pem_private_key(self.cfg["private_key"].encode(), password=None)
+        return (signing + b"." + b64(key.sign(signing, padding.PKCS1v15(), hashes.SHA256()))).decode()
+
     def _token(self):
         if self._tok and time.time() < self._exp - 60:
+            return self._tok
+        if self.mode == "service_account":
+            data = urllib.parse.urlencode({"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                                           "assertion": self._sa_assertion()}).encode()
+            st, js = self.http("POST", self.cfg.get("token_uri", "https://oauth2.googleapis.com/token"),
+                               {"Content-Type": "application/x-www-form-urlencoded"}, data)
+            if st != 200:
+                self.last_error = f"service-account token failed ({st}): {js.get('error')}"
+                raise RuntimeError(self.last_error)
+            self._tok, self._exp = js["access_token"], time.time() + js.get("expires_in", 3600)
             return self._tok
         data = urllib.parse.urlencode({
             "client_id": self.cfg["client_id"], "client_secret": self.cfg["client_secret"],
@@ -225,6 +259,19 @@ class GoogleSource(CalendarSource):
 
     def list_calendars(self):
         return self._call("GET", "/users/me/calendarList")[1].get("items", [])
+
+    def subscribe(self, cal_id):
+        """A calendar shared with a service account doesn't show in its calendarList until added."""
+        st, js = self.http("POST", self.API + "/users/me/calendarList",
+                           {"Authorization": "Bearer " + self._token(), "Content-Type": "application/json"},
+                           json.dumps({"id": cal_id}).encode())
+        return st in (200, 409), st
+
+    def get_calendar(self, cal_id):
+        return self._call("GET", "/calendars/" + urllib.parse.quote(cal_id, safe=""))[1]
+
+    def get_event(self, cal_id, ev_id):
+        return self._call("GET", f"/calendars/{urllib.parse.quote(cal_id, safe='')}/events/{ev_id}")[1]
 
     def list_events(self, cal_id):
         q = urllib.parse.quote(cal_id, safe="")
@@ -267,11 +314,121 @@ class GoogleSource(CalendarSource):
                    body={"extendedProperties": {"private": {TAG_KEY: ",".join(profiles)}}})
 
     def status(self):
-        return {"source": "google", "last_error": self.last_error}
+        return {"source": self.name, "auth": self.mode, "last_error": self.last_error,
+                "account": self.cfg.get("client_email") if self.mode == "service_account" else None}
+
+
+def _ics_unescape(v):
+    return v.replace("\\n", "\n").replace("\\N", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+
+def parse_ics(text):
+    """Minimal VEVENT reader (unfolds lines, keeps TZID params)."""
+    import re
+    text = re.sub(r"\r?\n[ \t]", "", text)
+    out = []
+    for block in re.findall(r"BEGIN:VEVENT\r?\n(.*?)END:VEVENT", text, re.S):
+        ev = {}
+        for line in block.splitlines():
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            key, _, params = k.partition(";")
+            m = re.search(r"TZID=([^;]+)", params)
+            if m:
+                ev[key + "_TZID"] = m.group(1)
+            if "VALUE=DATE" in params and len(v) == 8:
+                ev[key + "_DATE"] = True
+            ev[key] = _ics_unescape(v)
+        out.append(ev)
+    return out
+
+
+def _ics_time(v, tzid=None, is_date=False):
+    if is_date or (len(v) == 8 and v.isdigit()):
+        return f"{v[:4]}-{v[4:6]}-{v[6:8]}", True
+    if v.endswith("Z"):
+        v, tzid = v[:-1], "UTC"
+    dt = datetime.strptime(v[:15], "%Y%m%dT%H%M%S")
+    if tzid and tzid != str(TZ):
+        dt = dt.replace(tzinfo=ZoneInfo(tzid)).astimezone(TZ).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%dT%H:%M"), False
+
+
+class IcsSource(CalendarSource):
+    """Read-only public ICS feed (e.g. the PlayMetrics soccer team calendar a service account can't see)."""
+    name = "ics"
+
+    def __init__(self, fetch=None):
+        self.fetch = fetch or self._fetch
+        self.last_error = None
+
+    @staticmethod
+    def _fetch(url):
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "famcal/1"}), timeout=60) as r:
+            return r.read().decode("utf-8", "replace")
+
+    def list_events(self, url):
+        import hashlib
+        out = []
+        for e in parse_ics(self.fetch(url)):
+            if "DTSTART" not in e:
+                continue
+            st, ad = _ics_time(e["DTSTART"], e.get("DTSTART_TZID"), e.get("DTSTART_DATE"))
+            en = st
+            if "DTEND" in e:
+                en, _ = _ics_time(e["DTEND"], e.get("DTEND_TZID"), e.get("DTEND_DATE"))
+                if ad:  # ICS all-day end is exclusive; internal is inclusive
+                    en = (date.fromisoformat(en) - timedelta(days=1)).isoformat()
+                    en = max(en, st)
+            uid = e.get("UID") or (e.get("SUMMARY", "") + st)
+            out.append({"id": "ics" + hashlib.sha1(uid.encode()).hexdigest()[:20], "title": e.get("SUMMARY") or "(no title)",
+                        "description": e.get("DESCRIPTION", ""), "location": e.get("LOCATION", ""),
+                        "all_day": ad, "start": st, "end": en, "rrule": e.get("RRULE"), "exdates": [],
+                        "creator": None, "updated": e.get("LAST-MODIFIED") or e.get("DTSTAMP"),
+                        "status": "cancelled" if e.get("STATUS") == "CANCELLED" else "confirmed",
+                        "master_id": None, "original_start": None, "tags": None})
+        return out, True
+
+    def _ro(self, *a):
+        raise RuntimeError("this calendar is a read-only ICS feed")
+    create = update = delete = _ro
+
+    def set_tags(self, cal_id, ev_id, profiles):
+        pass  # tags live in the helper DB for feed events
+
+
+class RoutingSource(CalendarSource):
+    """Sends calendar ids that are URLs to the ICS reader, everything else to the main source."""
+    def __init__(self, main, ics=None):
+        self.main, self.ics = main, ics or IcsSource()
+        self.name = main.name
+
+    def _pick(self, cal_id):
+        return self.ics if str(cal_id).startswith(("http://", "https://", "webcal://")) else self.main
+
+    def list_events(self, cal_id):
+        return self._pick(cal_id).list_events(str(cal_id).replace("webcal://", "https://", 1))
+    def create(self, cal_id, ev): return self._pick(cal_id).create(cal_id, ev)
+    def update(self, cal_id, ev_id, ev): return self._pick(cal_id).update(cal_id, ev_id, ev)
+    def delete(self, cal_id, ev_id): return self._pick(cal_id).delete(cal_id, ev_id)
+    def set_tags(self, cal_id, ev_id, p): return self._pick(cal_id).set_tags(cal_id, ev_id, p)
+    def status(self): return self.main.status()
+    def __getattr__(self, k):  # list_calendars, subscribe, ... on the Google source
+        return getattr(self.main, k)
+
+
+def google_cred_path(data_dir):
+    """Service account key (primary) or OAuth token (fallback), or None."""
+    for n in ("google_sa.json", "google_token.json"):
+        p = os.path.join(data_dir, n)
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def make_source(data_dir):
-    tok = os.path.join(data_dir, "google_token.json")
-    if os.path.exists(tok) and os.environ.get("FAMCAL_SOURCE", "auto") != "fixture":
-        return GoogleSource(tok)
-    return FixtureSource(os.path.join(data_dir, "fixture_calendar.json"))
+    cred = google_cred_path(data_dir)
+    if cred and os.environ.get("FAMCAL_SOURCE", "auto") != "fixture":
+        return RoutingSource(GoogleSource(cred))
+    return RoutingSource(FixtureSource(os.path.join(data_dir, "fixture_calendar.json")))
