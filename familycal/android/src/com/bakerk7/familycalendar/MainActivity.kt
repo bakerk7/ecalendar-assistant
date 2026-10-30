@@ -211,6 +211,10 @@ class MainActivity : Activity(), Host {
         root.addView(doorBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57 + 56 + 14)) })
 
         ovl = FrameLayout(this)
+        // the + menu hides the door pills (they sit right where its bubbles go); bring them back once the overlay empties
+        ovl.setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
+            override fun onChildViewAdded(parent: View?, child: View?) {}
+            override fun onChildViewRemoved(parent: View?, child: View?) { if (ovl.childCount == 0) doorBox.visibility = View.VISIBLE } })
         root.addView(ovl, FrameLayout.LayoutParams(MATCH, MATCH))
 
         night = FrameLayout(this).apply {
@@ -711,6 +715,7 @@ class MainActivity : Activity(), Host {
     /** Stock FAB menu: white "Event" / "Task" bubbles above a blue X (stroke instead of shadow). */
     private fun fabMenu() {
         val s = scrim(false)
+        doorBox.visibility = View.INVISIBLE     // pills are drawn above ovl; hide them so Event/Task stay tappable
         fun bubble(label: String, bottom: Int, f: () -> Unit) = s.addView(text(label, 16f).apply {
             gravity = Gravity.CENTER; background = pressable(oval(Color.WHITE, Color.parseColor("#E1E4EA"), 1f), oval(C.FIELD, Color.parseColor("#E1E4EA"), 1f))
             setOnClickListener { closeOverlay(); f() } }, FrameLayout.LayoutParams(px(64), px(64), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(39), px(bottom)) })
