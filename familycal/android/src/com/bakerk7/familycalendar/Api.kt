@@ -15,7 +15,7 @@ class Api(private val ctx: Context) {
     private val main = Handler(Looper.getMainLooper())
     private val prefs = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
     var base: String
-        get() = prefs.getString("url", "http://192.0.2.10:8091")!!.trimEnd('/')
+        get() = prefs.getString("url", BuildCfg.DEFAULT_URL)!!.trimEnd('/')
         set(v) { prefs.edit().putString("url", v).apply() }
     var key: String
         get() = prefs.getString("key", "")!!
