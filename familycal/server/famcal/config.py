@@ -56,3 +56,7 @@ def rules():
 
 def importer():
     return get().get("importer", {})
+
+
+def tag_past_events():
+    return bool(get().get("tagging", {}).get("tag_past_events", False))

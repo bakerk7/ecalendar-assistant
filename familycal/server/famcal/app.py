@@ -80,6 +80,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
     def status():
         return {"source": svc.source.status(), "last_sync": svc.last_sync, "sync_error": svc.last_sync_error,
                 "events": db.one("SELECT COUNT(*) n FROM events WHERE deleted=0")["n"],
+                "ecalendar": {"last": getattr(getattr(svc, "ecal_feed", None), "last", None), "error": getattr(getattr(svc, "ecal_feed", None), "error", None), "stats": getattr(getattr(svc, "ecal_feed", None), "stats", None), "shown": db.one("SELECT COUNT(*) n FROM events WHERE deleted=0 AND origin LIKE 'ecal-native%'")["n"], "hidden_duplicates": db.one("SELECT COUNT(*) n FROM events WHERE deleted=2")["n"]},
                 "to_tag": len(svc.to_tag(1000)), "calendars": svc.calendars()}
 
     @app.post("/api/sync", dependencies=A)
@@ -457,9 +458,20 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
     # ------------------------------------------------------------ background sync
     if start_sync:
         def loop():
+            from .ecal_feed import Feed
             interval = float(os.environ.get("FAMCAL_SYNC_SECONDS", "60"))
+            ecal_every = float(os.environ.get("FAMCAL_ECAL_SECONDS", "600"))
+            feed, next_ecal = Feed(svc.db), 0.0
+            svc.ecal_feed = feed
+            svc.clear_past_auto_tags()
             while True:
                 svc.sync()
+                if time.time() >= next_ecal:
+                    feed.run_once(); next_ecal = time.time() + ecal_every
+                    svc.clear_past_auto_tags()
+                else:
+                    from .ecal_feed import dedupe
+                    dedupe(svc.db)  # Google changes can create/remove duplicates
                 time.sleep(interval)
         threading.Thread(target=loop, daemon=True, name="sync").start()
     return app

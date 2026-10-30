@@ -10,6 +10,13 @@ from .db import new_id, now
 from .sources import TZ
 
 log = logging.getLogger("famcal")
+ECAL_NATIVE, ECAL_EDITED = "ecal-native", "ecal-native-edited"
+
+
+def is_ecal(row):
+    """eCalendar-only event (from the stock app, not in Google). Read-only source; local edits only."""
+    return (row.get("origin") or "").startswith("ecal-native")
+
 FAMILY = config.family()
 
 
@@ -145,9 +152,34 @@ class Service:
                     return int(changed)
             # Auto tags live in the helper DB only. Google is written only for events the app
             # creates/edits or that someone tags by hand (set_tags), never in bulk from sync.
+            if self._is_past(ev) and not config.tag_past_events():
+                self._store_tags(ev["id"], [], "default", "past event, not auto-tagged", 0)
+                return int(changed)
             prof, src, note, review = rules.decide(self.db, ev, cal["id"], valid)
             self._store_tags(ev["id"], prof, src, note, review)
         return int(changed)
+
+    @staticmethod
+    def _is_past(ev, today=None):
+        """Single events that ended before today (recurring series are never 'past')."""
+        if ev.get("rrule"):
+            return False
+        end = (ev.get("end") or ev.get("start") or "")[:10]
+        return bool(end) and end < (today or date.today().isoformat())
+
+    def clear_past_auto_tags(self, today=None):
+        """Drop rule/auto tags from past single events (helper DB only). Manual, imported and
+        Google tags stay. Returns the number of events changed."""
+        if config.tag_past_events():
+            return 0
+        today = today or date.today().isoformat()
+        rows = self.db.q("""SELECT t.event_id FROM tags t JOIN events e ON e.id=t.event_id
+                            WHERE e.rrule IS NULL AND COALESCE(e.end,e.start) < ?
+                              AND (t.source IN ('rule','default') OR (t.source='manual' AND t.rule IS NULL))
+                              AND NOT (t.source='default' AND t.profiles='[]' AND t.needs_review=0)""", (today,))
+        for r in rows:
+            self._store_tags(r["event_id"], [], "default", "past event, not auto-tagged", 0)
+        return len(rows)
 
     def _store_tags(self, eid, profiles, source, rule, review):
         self.db.x("INSERT OR REPLACE INTO tags(event_id,profiles,source,rule,needs_review,updated) VALUES(?,?,?,?,?,?)",
@@ -169,12 +201,14 @@ class Service:
     def set_tags(self, eid, profiles):
         valid = self.valid_ids()
         profiles = [p for p in dict.fromkeys(profiles) if p in valid]
-        ev = self.db.one("SELECT cal FROM events WHERE id=?", (eid,))
+        ev = self.db.one("SELECT cal, origin FROM events WHERE id=?", (eid,))
         if not ev:
             raise KeyError(eid)
         self._store_tags(eid, profiles, "manual", "tagged by hand", 0)
         cal = self._cal(ev["cal"])
-        if cal.get("writable"):
+        if is_ecal(ev):  # eCalendar-only event: change stays in the helper DB
+            self._mark_local(eid)
+        elif cal.get("writable"):
             self._push_tags(cal, eid, profiles)
         return self.event(eid)
 
@@ -197,6 +231,8 @@ class Service:
         e = self.db.one("SELECT * FROM events WHERE id=?", (eid,))
         if not e:
             raise KeyError(eid)
+        if is_ecal(e):
+            return self._update_local(e, data)
         cal = self._cal(e["cal"])
         dest = data.get("cal")
         if dest and dest != e["cal"]:
@@ -221,11 +257,43 @@ class Service:
         return self.event(eid)
 
     def delete_event(self, eid):
-        e = self.db.one("SELECT cal FROM events WHERE id=?", (eid,))
+        e = self.db.one("SELECT cal, origin FROM events WHERE id=?", (eid,))
         if not e:
             raise KeyError(eid)
+        if is_ecal(e):  # hide locally only; the stock eCalendar is never written
+            self.db.x("UPDATE events SET deleted=1, origin=? WHERE id=?", (ECAL_EDITED, eid))
+            return
         self.source.delete(self._gcal(self._cal(e["cal"])), eid)
         self.db.x("UPDATE events SET deleted=1 WHERE id=?", (eid,))
+
+    def _mark_local(self, eid):
+        self.db.x("UPDATE events SET origin=? WHERE id=? AND origin=?", (ECAL_EDITED, eid, ECAL_NATIVE))
+
+    def _update_local(self, e, data):
+        """Edits to eCalendar-only events are kept in the helper DB (origin ecal-native-edited) so the
+        eCalendar refresh no longer overwrites them. Nothing is written to Google or the eCalendar."""
+        cols = {k: data[k] for k in ("title", "description", "location", "start", "end", "rrule") if k in data}
+        if "all_day" in data:
+            cols["all_day"] = int(bool(data["all_day"]))
+        if "start" in cols and "end" not in cols:
+            cols["end"] = cols["start"]
+        with self.lock:
+            if cols:
+                self.db.x(f"UPDATE events SET {','.join(k + '=?' for k in cols)}, updated=? WHERE id=?",
+                          (*cols.values(), now(), e["id"]))
+            if "reminders" in data or "anniversary" in data:
+                self._upsert_meta(e["id"], data)
+            self._mark_local(e["id"])
+            if "profiles" in data:
+                self.set_tags(e["id"], data["profiles"])
+        return self.event(e["id"])
+
+    def _upsert_meta(self, eid, ev):
+        cur_m = self.db.one("SELECT * FROM event_meta WHERE event_id=?", (eid,)) or {}
+        rem = ev["reminders"] if ev.get("reminders") is not None else json.loads(cur_m.get("reminders") or "[]")
+        ann = ev["anniversary"] if "anniversary" in ev else cur_m.get("anniversary", 0)
+        self.db.x("INSERT OR REPLACE INTO event_meta(event_id,reminders,anniversary) VALUES(?,?,?)",
+                  (eid, json.dumps([int(m) for m in rem or []]), int(bool(ann))))
 
     def event(self, eid):
         r = self.db.one("""SELECT e.*, t.profiles tprof, t.source tsrc, t.rule trule, t.needs_review, m.reminders mrem, m.anniversary manniv
@@ -240,6 +308,7 @@ class Service:
                 "series_start": r["start"], "rrule": r["rrule"], "recurring": bool(r["rrule"]),
                 "profiles": prof or ["family"], "tag_source": r.get("tsrc"), "tag_rule": r.get("trule"),
                 "needs_tag": bool(r.get("needs_review")), "origin": r.get("origin"),
+                "source": "ecalendar" if is_ecal(r) else ("google" if r.get("cal") == "shared" else "feed"), "local_only": is_ecal(r),
                 "reminders": json.loads(r.get("mrem") or "[]"), "anniversary": bool(r.get("manniv"))}
 
     def upcoming_reminders(self, now=None, hours=48):

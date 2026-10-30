@@ -88,6 +88,10 @@
       "note": "profile names/aliases in the title"
     }
   ],
+  "tagging": {
+    "_comment": "tag_past_events=false: auto-tag rules only touch events ending today or later; past events stay untagged and never show in the to-tag list",
+    "tag_past_events": false
+  },
   "importer": {
     "feed_calendar_profile": "alex",
     "default_chore_profile": "dad",

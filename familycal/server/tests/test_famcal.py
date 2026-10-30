@@ -513,3 +513,67 @@ def test_migration_apply_and_undo(tmp_path):
     assert len(src.creates) == 1
     assert undo(svc, rb) == 1
     assert svc.db.one("SELECT origin,deleted FROM events WHERE id='n1'") == {"origin": "ecal-native", "deleted": 0}
+
+
+# ---------------------------------------------------------------- eCalendar-only events (read-only)
+def _gw(eid, title, start, end=None, allday=0, rrule=None, src=0):
+    return {"eventId": eid, "title": title, "startDatetime": start, "endDatetime": end or start, "isAllDay": allday,
+            "eventSource": src, "eventType": 0, "isRecurring": int(bool(rrule)), "rrule": rrule, "isDeleted": 0,
+            "syncThirdEventId": "g" if src == 2 else None, "syncCalendarId": None, "userCalendarCategoryIds": None}
+
+
+def test_ecal_feed_refresh_dedupe_and_local_edits(tmp_path):
+    from datetime import date
+    from famcal.ecal_feed import refresh, dedupe
+    svc, src = _svc(tmp_path)
+    x = svc.db.x
+    # Google already has: a yearly birthday and a one-off; PlayMetrics has a practice
+    x("INSERT INTO events(id,cal,title,start,end,rrule,origin) VALUES('gb','shared','Liv Bday!','2026-04-26','2026-04-26','FREQ=YEARLY','google')")
+    x("INSERT INTO events(id,cal,title,start,end,origin) VALUES('pm','soccer','Boys U9 - Practice','2026-11-03T17:30','2026-11-03T18:30','ics')")
+    rows = [_gw("1", "Dad Bday", "2026-10-01 00:00:00", allday=1, rrule="FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=1"),
+            _gw("2", "Liv Bday", "2027-04-26 00:00:00", allday=1, rrule="FREQ=YEARLY;BYMONTH=4;BYMONTHDAY=26"),
+            _gw("3", "Jack soccer practice", "2026-11-03 23:30:00", "2026-11-04 00:30:00"),
+            _gw("4", "Liv - No School", "2026-11-03 00:00:00", allday=1),
+            _gw("5", "Block for CT", "2026-11-02 15:00:00", src=2),                    # Google-synced: ignored
+            _gw("6", "Dad Bday", "2027-10-01 00:00:00", allday=1, rrule="FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=1")]  # next year, new id
+    st = refresh(svc.db, rows, date(2026, 10, 1), date(2027, 6, 1))
+    assert st["added"] == 4
+    assert svc.event("ec3")["start"] == "2026-11-03T17:30"                                # UTC -> Chicago
+    hidden, why = dedupe(svc.db)
+    assert set(why) == {"ec2", "ec3"} and hidden == 2 and svc.event("ec6") is None
+    shown = {e["id"] for e in svc.instances(date(2026, 9, 30), date(2026, 11, 4))}
+    assert {"ec1", "ec4"} <= shown and "ec3" not in shown and "pm" in shown
+    assert svc.event("ec1")["source"] == "ecalendar" and svc.event("ec1")["local_only"]
+    # edits stay local: nothing goes to the source, and a refresh doesn't overwrite them
+    c = TestClient(create_app(svc, api_key="k", start_sync=False))
+    c.patch("/api/events/ec4", json={"title": "Liv - No School!"}, headers={"X-API-Key": "k"})
+    c.put("/api/events/ec4/tags", json={"profiles": []}, headers={"X-API-Key": "k"})
+    c.delete("/api/events/ec1", headers={"X-API-Key": "k"})
+    assert src.creates == [] and src.tag_writes == [] and src.data.get("shared", {}) == {}
+    refresh(svc.db, rows, date(2026, 10, 1), date(2027, 6, 1))
+    assert svc.event("ec4")["title"] == "Liv - No School!"
+    assert svc.db.one("SELECT deleted FROM events WHERE id='ec1'")["deleted"] == 1
+    # an event removed from the eCalendar disappears; an empty response changes nothing
+    refresh(svc.db, rows[1:3], date(2026, 10, 1), date(2027, 6, 1))
+    assert svc.db.one("SELECT deleted FROM events WHERE id='ec4'")["deleted"] == 0       # edited locally: kept
+    assert svc.db.one("SELECT deleted FROM events WHERE id='ec1'")["deleted"] == 1       # local delete sticks
+    assert refresh(svc.db, [], date(2026, 10, 1), date(2027, 6, 1)) == {"skipped": "empty response"}
+
+
+def test_no_auto_tags_on_past_events(tmp_path):
+    from datetime import date, timedelta
+    past = (date.today() - timedelta(days=3)).isoformat()
+    fut = (date.today() + timedelta(days=3)).isoformat()
+    evs = [{"id": "p", "title": "Jack soccer", "start": past + "T10:00", "end": past + "T11:00", "updated": "u"},
+           {"id": "f", "title": "Jack soccer", "start": fut + "T10:00", "end": fut + "T11:00", "updated": "u"},
+           {"id": "q", "title": "Mystery", "start": past + "T10:00", "end": past + "T11:00", "updated": "u"}]
+    svc, src = _svc(tmp_path, evs)
+    svc.sync()
+    assert svc.db.one("SELECT profiles FROM tags WHERE event_id='p'")["profiles"] == "[]"
+    assert svc.db.one("SELECT profiles FROM tags WHERE event_id='f'")["profiles"] != "[]"
+    assert all(e["id"] not in ("p", "q") for e in svc.to_tag())
+    # previously stored auto tags on past events are cleared; hand tags stay
+    svc.db.x("UPDATE tags SET profiles='[\"x\"]', source='rule' WHERE event_id='p'")
+    svc.db.x("UPDATE tags SET profiles='[\"y\"]', source='manual', rule='tagged by hand' WHERE event_id='q'")
+    assert svc.clear_past_auto_tags() == 1
+    assert svc.db.one("SELECT profiles FROM tags WHERE event_id='q'")["profiles"] == '["y"]'
