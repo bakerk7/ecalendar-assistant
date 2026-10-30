@@ -368,3 +368,41 @@ def test_bundled_default_config_matches_example():
     a = json.load(open(os.path.join(here, "..", "famcal", "default_config.json")))
     b = json.load(open(os.path.join(here, "..", "..", "config.example.json")))
     assert a == b and b["profiles"] and b["app"]["camera"]["package"] == ""
+
+
+def test_doors_proxy_fake_and_threshold(env, monkeypatch):
+    svc, fx, c = env
+    from famcal import config
+    monkeypatch.setitem(config.get(), "doors", {"threshold_min": 5, "sensors": [
+        {"name": "Front", "entity": "binary_sensor.front"}, {"name": "Garage", "entity": "binary_sensor.garage"}]})
+    monkeypatch.delenv("HA_URL", raising=False)
+    d = c.get("/api/doors", headers=H).json()
+    assert d["threshold_min"] == 5 and d["alerts"] == [] and all(not x["ok"] for x in d["doors"])
+    assert "entity" not in d["doors"][0]
+    d = c.post("/api/doors/fake", headers=H, json={"name": "Garage", "minutes": 3}).json()
+    assert d["alerts"] == []
+    d = c.post("/api/doors/fake", headers=H, json={"name": "Garage", "minutes": 12}).json()
+    assert [a["name"] for a in d["alerts"]] == ["Garage"] and d["alerts"][0]["open_min"] >= 12
+    h = c.get("/api/home?start=2026-01-01&end=2026-01-02", headers=H).json()
+    assert [a["name"] for a in h["doors"]] == ["Garage"]
+    assert c.post("/api/doors/fake", headers=H, json={"clear_all": True}).json()["alerts"] == []
+
+
+def test_doors_reads_ha_state(env, monkeypatch):
+    from famcal.doors import Doors
+    from famcal import config
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setitem(config.get(), "doors", {"threshold_min": 5, "sensors": [{"name": "Deck", "entity": "binary_sensor.deck"}]})
+    d = Doors()
+    since = (datetime.now(timezone.utc) - timedelta(minutes=7)).isoformat()
+    monkeypatch.setattr(d, "_ha_state", lambda e: {"state": "on", "last_changed": since})
+    s = d.status()
+    assert s["alerts"][0]["name"] == "Deck" and s["alerts"][0]["open_min"] == 7
+
+
+def test_reward_redeem_subtracts_stars(env):
+    svc, fx, c = env
+    r = c.post("/api/rewards", headers=H, json={"title": "Pick the movie", "emoji": "🎬", "cost": 20}).json()
+    c.post("/api/stars/adjust", headers=H, json={"profile_id": "jack", "delta": 25, "reason": "t"})
+    assert c.post(f"/api/rewards/{r['id']}/redeem", headers=H, json={"profile_id": "jack"}).json()["stars"] == 5
+    assert c.post(f"/api/rewards/{r['id']}/redeem", headers=H, json={"profile_id": "jack"}).status_code >= 400

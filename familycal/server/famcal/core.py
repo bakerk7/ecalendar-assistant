@@ -51,6 +51,10 @@ class Service:
         if not self.db.q("SELECT 1 FROM lists LIMIT 1"):
             for i, (n, e) in enumerate([("Groceries", "🛒"), ("To-Do", "✅"), ("Packing", "🎒")]):
                 self.db.x("INSERT INTO lists(id,name,emoji,sort) VALUES(?,?,?,?)", (new_id(), n, e, i))
+        if not self.db.q("SELECT 1 FROM rewards LIMIT 1"):
+            for r in config.get().get("rewards", []):
+                self.db.x("INSERT INTO rewards(id,title,emoji,cost,profile_id) VALUES(?,?,?,?,?)",
+                          (new_id(), r["title"], r.get("emoji", "🎁"), int(r["cost"]), r.get("profile_id")))
         rules.seed_rules(self.db)
         self.apply_env_calendars()
 

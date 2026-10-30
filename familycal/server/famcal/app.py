@@ -11,6 +11,7 @@ from .core import Service
 from .db import DB, new_id, now
 from .sources import TZ, make_source
 from . import oauth
+from .doors import Doors
 
 log = logging.getLogger("famcal")
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -313,6 +314,22 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         return {"ok": True}
 
     # ------------------------------------------------------------ weather + tablet bundle
+    doors = Doors()
+    app.state.doors = doors
+
+    @app.get("/api/doors", dependencies=A)
+    def doors_status():
+        return doors.status()
+
+    @app.post("/api/doors/fake", dependencies=A)
+    def doors_fake(body: dict = Body(...)):
+        """Testing only: {"name": "Garage", "minutes": 12} fakes an open door; minutes null clears it. Never writes to HA."""
+        if body.get("clear_all"):
+            doors.fake.clear()
+        elif body.get("name"):
+            doors.set_fake(body["name"], body.get("minutes"))
+        return doors.status()
+
     @app.get("/api/weather", dependencies=A)
     def weather():
         return svc.weather()
@@ -327,7 +344,8 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
                 "calendars": [{"id": c["id"], "name": c["name"], "color": c.get("color"),
                                "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),
-                "to_tag": len(svc.to_tag(1000)), "server_time": now()}
+                "to_tag": len(svc.to_tag(1000)), "server_time": now(),
+                "doors": doors.status()["alerts"] if doors.cfg().get("sensors") else []}
 
     # ------------------------------------------------------------ Google OAuth (one-time)
     app.include_router(oauth.router(data_dir, A, svc))

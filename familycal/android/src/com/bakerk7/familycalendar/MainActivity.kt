@@ -49,6 +49,15 @@ class MainActivity : Activity(), Host {
     private val filter = linkedSetOf<String>()
     private var forcedNight = false
     private var wakeUntil = 0L
+    private var forcedEvening = false
+    private var briState = -9f
+    private var doorAlerts = listOf<Pair<String, Long>>()     // door name, opened-at millis
+    private lateinit var doorBox: LinearLayout
+    private var glance: FrameLayout? = null
+    private var lastGlance = 0L
+    private val screenRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) { ui.postDelayed({ updateClock(); maybeGlance() }, 300) }
+    }
     private var lastJson = 0
     private val chipCache = HashMap<String, List<Chip>>()
 
@@ -88,7 +97,9 @@ class MainActivity : Activity(), Host {
         api.loadCache()?.let { try { lastJson = it.hashCode(); apply(JSONObject(it)) } catch (_: Exception) {} }
         render()
         refresh()
+        registerReceiver(screenRx, android.content.IntentFilter(Intent.ACTION_SCREEN_ON))
     }
+    override fun onDestroy() { try { unregisterReceiver(screenRx) } catch (_: Exception) {}; super.onDestroy() }
 
     override fun onNewIntent(i: Intent) { super.onNewIntent(i); takeConfig(i); updateClock(); render(); refresh() }
 
@@ -101,9 +112,11 @@ class MainActivity : Activity(), Host {
         if (i?.hasExtra("night") == true) forcedNight = i.getBooleanExtra("night", false)
         if (i?.hasExtra("awake_min") == true) wakeUntil = System.currentTimeMillis() + 60_000L * i.getIntExtra("awake_min", 1)
         i?.getStringExtra("date")?.let { anchor = it }
+        if (i?.hasExtra("evening") == true) { forcedEvening = i.getBooleanExtra("evening", false); lastTouch = 0 }
+        if (i?.getBooleanExtra("glance", false) == true) ui.post { showGlance() }
     }
 
-    private val tick = object : Runnable { override fun run() { updateClock(); ui.postDelayed(this, 15_000) } }
+    private val tick = object : Runnable { override fun run() { updateClock(); renderDoors(); ui.postDelayed(this, 15_000) } }
     private val poll = object : Runnable {
         override fun run() { if (currentFocus !is EditText && ovl.childCount == 0) refresh(); ui.postDelayed(this, 60_000) }
     }
@@ -188,6 +201,10 @@ class MainActivity : Activity(), Host {
         camFab.contentDescription = BuildCfg.CAMERA_LABEL
         root.addView(camFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16), px(57)) })
 
+        // open-door pills, stacked just above the + / camera buttons
+        doorBox = vbox(this).apply { gravity = Gravity.END }
+        root.addView(doorBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57 + 56 + 14)) })
+
         ovl = FrameLayout(this)
         root.addView(ovl, FrameLayout.LayoutParams(MATCH, MATCH))
 
@@ -258,6 +275,9 @@ class MainActivity : Activity(), Host {
         cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
+        doorAlerts = j.optJSONArray("doors")?.let { a -> (0 until a.length()).map { k -> val o = a.getJSONObject(k)
+            val since = try { java.time.OffsetDateTime.parse(o.optString("since")).toInstant().toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() - 60_000L * o.optInt("open_min") }
+            o.optString("name") to since } } ?: emptyList()
         Rem.store(this, j.optJSONArray("reminders"))
         chipCache.clear()
     }
@@ -303,11 +323,13 @@ class MainActivity : Activity(), Host {
         tempTv.text = weather?.let { "${it.temp}°F" } ?: "--°F"
         val wxOn = prefs.getBoolean("show_weather", true); tempTv.visibility = if (wxOn) View.VISIBLE else View.GONE; wxIcon.visibility = tempTv.visibility
         renderPills()
+        glance?.let { fillGlance(it) }
         val onCal = page == "cal"
         profBar.visibility = if (onCal) View.VISIBLE else View.GONE
         band.visibility = profBar.visibility
         fab.visibility = if (page == "rewards" || !prefs.getBoolean("show_fab", true)) View.GONE else View.VISIBLE
         camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility
+        renderDoors()
         if (onCal) renderProfiles()
         pageHost.removeAllViews()
         val v: View = when (page) {
@@ -480,7 +502,8 @@ class MainActivity : Activity(), Host {
                     val can = p.stars >= r.cost
                     val card = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; background = round(Color.WHITE, 8f); setPadding(px(12), px(16), px(12), px(14)) }
                     card.addView(text(r.emoji.ifEmpty { "🎁" }, 40f))
-                    card.addView(text(r.title, 16f, C.INK, lines = 2).apply { gravity = Gravity.CENTER; setPadding(0, px(10), 0, px(10)) })
+                    card.addView(text(r.title, 16f, C.INK, lines = 2).apply { gravity = Gravity.CENTER; setPadding(0, px(10), 0, px(8)) })
+                    card.addView(progress(p, r), lp(MATCH, WRAP).apply { bottomMargin = px(10) })
                     val btn = text("Redeem  ⭐ ${r.cost}", 15f, Color.WHITE, C.MED).apply {
                         gravity = Gravity.CENTER; background = round(if (can) strong(p) else mix(strong(p), .45f), 14f)
                         setOnClickListener { if (can) redeem(r, p) else toast("${p.name} needs ${r.cost - p.stars} more stars") }
@@ -497,6 +520,111 @@ class MainActivity : Activity(), Host {
 
     private fun redeem(r: Reward, p: Profile) = confirm("${r.emoji} ${r.title}", "Spend ${r.cost} stars from ${p.name}? (${p.stars} now)", "Redeem") {
         api.post("/api/rewards/${r.id}/redeem", JSONObject().put("profile_id", p.id), { toast("Enjoy, ${p.name}!"); refresh() }, { toast(it) })
+    }
+
+    // ================================================================= door pills
+    private fun doorAge(since: Long): String { val m = ((System.currentTimeMillis() - since) / 60_000).coerceAtLeast(0)
+        return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+    private fun renderDoors() {
+        if (!::doorBox.isInitialized) return
+        doorBox.removeAllViews()
+        (doorBox.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (::fab.isInitialized && fab.visibility == View.VISIBLE) px(57 + 56 + 14) else px(24); doorBox.layoutParams = it }
+        for ((name, since) in doorAlerts) {
+            val pill = hbox(this).apply { background = round(Color.WHITE, 18f, Color.parseColor("#E3E6EC"), fpx(1.5f)); setPadding(px(14), 0, px(16), 0); elevation = fpx(3f) }
+            pill.addView(View(this).apply { background = oval(Color.parseColor("#F5A524")) }, lp(px(10), px(10)).apply { rightMargin = px(10) })
+            pill.addView(text("$name open ${doorAge(since)}", 15f, C.INK, C.MED))
+            doorBox.addView(pill, lp(WRAP, px(36)).apply { topMargin = px(8) })
+        }
+    }
+
+    // ================================================================= reward progress
+    private fun progress(p: Profile, r: Reward): View {
+        val box = vbox(this)
+        val f = (p.stars.toFloat() / r.cost).coerceIn(0f, 1f)
+        val bar = hbox(this).apply { background = round(C.FIELD, 5f) }
+        bar.addView(View(this).apply { background = round(strong(p), 5f) }, lp(0, MATCH, f.coerceAtLeast(0.001f)))
+        bar.addView(View(this), lp(0, MATCH, (1f - f).coerceAtLeast(0.001f)))
+        box.addView(bar, lp(MATCH, px(10)))
+        box.addView(text(if (p.stars >= r.cost) "Ready to redeem!" else "⭐ ${p.stars} / ${r.cost}", 13f, C.MUT).apply { gravity = Gravity.CENTER; setPadding(0, px(4), 0, 0) }, lp(MATCH, WRAP))
+        return box
+    }
+
+    // ================================================================= morning glance
+    private fun glanceWin(): Pair<Int, Int> { val w = prefs.getString("glance_win", BuildCfg.GLANCE_WINDOW)!!.split("-")
+        return mins(w.getOrNull(0)) to mins(w.getOrNull(1)) }
+    private fun inGlanceWindow(m: Int): Boolean { val (a, b) = glanceWin(); return a >= 0 && b >= 0 && m in a until b }
+    private fun maybeGlance() {
+        val c = Calendar.getInstance(); val m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+        if (!prefs.getBoolean("glance_on", BuildCfg.GLANCE_ON) || night.visibility == View.VISIBLE || !inGlanceWindow(m)) return
+        if (glance != null || System.currentTimeMillis() - lastGlance < 20 * 60_000) return
+        showGlance(false)
+    }
+    private fun closeGlance() { glance?.let { root.removeView(it) }; glance = null; updateClock() }
+    private fun showGlance(forced: Boolean = true) {
+        lastGlance = System.currentTimeMillis()
+        val today = D.today()
+        if (page != "cal" || anchor != today || choresDate != today) { page = "cal"; mode = "week"; anchor = today; choresDate = today; render(); refresh() }
+        glance?.let { root.removeView(it) }
+        val g = FrameLayout(this).apply { setBackgroundColor(Color.WHITE); isClickable = true; tag = if (forced) "forced" else ""; setOnClickListener { closeGlance() } }
+        glance = g; root.addView(g, root.indexOfChild(night), FrameLayout.LayoutParams(MATCH, MATCH))
+        fillGlance(g); updateClock(); refresh()
+    }
+    private fun fillGlance(g: FrameLayout) {
+        g.removeAllViews()
+        val today = D.today()
+        val c = Calendar.getInstance(); val m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+        val page2 = hbox(this, Gravity.TOP).apply { setPadding(px(60), px(50), px(60), px(40)) }
+        g.addView(page2, FrameLayout.LayoutParams(MATCH, MATCH))
+        // left: greeting, date, weather, today's events
+        val left = vbox(this)
+        page2.addView(left, lp(0, MATCH, 1f))
+        val hi = when { m < 12 * 60 -> "Good morning"; m < 17 * 60 -> "Good afternoon"; else -> "Good evening" }
+        left.addView(text(hi, 22f, C.MUT))
+        left.addView(text("${Fmt.DOW[(c.get(Calendar.DAY_OF_WEEK) + 5) % 7]}, ${Fmt.MON[D.month(today)]} ${D.day(today)}", 44f, C.INK, C.BOLD).apply { setPadding(0, px(4), 0, 0) })
+        val wx = hbox(this).apply { setPadding(0, px(18), 0, px(26)) }
+        wx.addView(text(Fmt.clock(m), 30f, C.INK))
+        weather?.takeIf { prefs.getBoolean("show_weather", true) }?.let { w ->
+            wx.addView(View(this).apply { setBackgroundColor(C.LINE) }, lp(px(2), px(30)).apply { setMargins(px(18), 0, px(18), 0) })
+            wx.addView(BmpView(this, Img.get("wx"), px(38)))
+            val d = w.days.firstOrNull { it.date == today }
+            wx.addView(text("${w.temp}°F" + (d?.let { "   H ${it.hi}°  L ${it.lo}°" + (if (it.pop >= 20) "   ${it.pop}% rain" else "") } ?: ""), 26f, C.INK).apply { setPadding(px(12), 0, 0, 0) })
+        }
+        left.addView(wx)
+        left.addView(text("Today", 18f, C.INK, C.BOLD).apply { setPadding(0, 0, 0, px(10)) })
+        val evs = chips(today).filter { it.ev != null }.sortedWith(compareBy({ !it.allDay }, { it.startMin }))
+        val el = vbox(this)
+        if (evs.isEmpty()) el.addView(text("Nothing on the calendar today", 17f, C.MUT))
+        for (e in evs.take(8)) {
+            val r = hbox(this).apply { background = round(C.FIELD, 10f); setPadding(0, 0, px(16), 0) }
+            r.addView(View(this).apply { background = round(e.profs.firstOrNull()?.let { strong(it) } ?: C.SHARED, 3f) }, lp(px(6), px(40)).apply { setMargins(px(10), 0, px(14), 0) })
+            r.addView(text(e.sub(), 15f, C.MUT), lp(px(190), WRAP))
+            r.addView(text(e.title, 17f, C.INK), lp(0, WRAP, 1f))
+            el.addView(r, lp(MATCH, px(56)).apply { bottomMargin = px(8) })
+        }
+        if (evs.size > 8) el.addView(text("+${evs.size - 8} more", 15f, C.MUT))
+        left.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(el) }, lp(MATCH, 0, 1f))
+        // right: each person's open chores + next reward
+        val right = vbox(this).apply { setPadding(px(50), 0, 0, 0) }
+        page2.addView(right, lp(0, MATCH, 1f))
+        right.addView(text("Chores to do", 18f, C.INK, C.BOLD).apply { setPadding(0, px(8), 0, px(12)) })
+        val grid = vbox(this)
+        val who = people.filter { p -> chores.any { it.profile == p.id } }
+        if (who.isEmpty()) grid.addView(text("No chores today", 17f, C.MUT))
+        for (p in who) {
+            val open = chores.filter { it.profile == p.id && !it.done }
+            val card = vbox(this).apply { background = round(mix(strong(p), .88f), 12f); setPadding(px(16), px(12), px(16), px(12)) }
+            val h = hbox(this)
+            h.addView(text(p.name, 18f, C.INK, C.BOLD), lp(0, WRAP, 1f))
+            h.addView(BmpView(this, Img.get("star3"), px(20))); h.addView(text(" ${p.stars}", 16f, C.INK))
+            card.addView(h)
+            card.addView(text(if (open.isEmpty()) "All done! 🎉" else open.joinToString("   ·   ") { (it.emoji.ifEmpty { "" } + " " + it.title).trim() }, 16f, if (open.isEmpty()) C.MUT else C.INK, lines = 2)
+                .apply { setPadding(0, px(6), 0, px(6)) })
+            rewards.filter { (it.profile == null || it.profile == p.id) }.sortedBy { it.cost }.let { rs -> rs.firstOrNull { it.cost > p.stars } ?: rs.lastOrNull() }?.let { r ->
+                val rr = hbox(this); rr.addView(text("${r.emoji.ifEmpty { "🎁" }} ${r.title}", 14f, C.MUT), lp(px(260), WRAP)); rr.addView(progress(p, r), lp(0, WRAP, 1f)); card.addView(rr) }
+            grid.addView(card, lp(MATCH, WRAP).apply { bottomMargin = px(10) })
+        }
+        right.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
+        g.addView(text("Tap anywhere to open the calendar", 15f, C.MUT2).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = px(14) })
     }
 
     // ================================================================= overlays (in-tree, no Dialog windows)
@@ -606,8 +734,8 @@ class MainActivity : Activity(), Host {
         c.addView(text("Sleep mode dims the screen between scheduled times. Tap the screen at any time to wake it for a minute.", 14f, C.MUT, lines = 3).apply { setPadding(0, px(18), 0, px(12)) })
         var on = prefs.getBoolean("sleep_on", true)
         val days = StringBuilder(prefs.getString("sleep_days", "1111111")!!)
-        var a = mins(prefs.getString("sleep_start", "21:30")).takeIf { it >= 0 } ?: (21 * 60 + 30)
-        var b = mins(prefs.getString("sleep_end", "06:30")).takeIf { it >= 0 } ?: (6 * 60 + 30)
+        var a = mins(prefs.getString("sleep_start", BuildCfg.SLEEP_START)).takeIf { it >= 0 } ?: (21 * 60 + 30)
+        var b = mins(prefs.getString("sleep_end", BuildCfg.SLEEP_END)).takeIf { it >= 0 } ?: (6 * 60 + 30)
         var idle = prefs.getBoolean("sleep_idle", false); var idleMin = prefs.getInt("sleep_idle_min", 10)
         var dim = prefs.getString("sleep_dim", "clock")!!
         c.addView(switchRow(-1, "Sleep Mode Schedule", on) { on = it }.first, lp(MATCH, WRAP))
@@ -652,7 +780,12 @@ class MainActivity : Activity(), Host {
     private var dimFn: () -> Unit = {}
     private fun drawDimLater() = ui.post { dimFn() }
     private var lastTouch = System.currentTimeMillis()
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean { lastTouch = System.currentTimeMillis(); return super.dispatchTouchEvent(ev) }
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        lastTouch = System.currentTimeMillis()
+        if (glance != null && night.visibility != View.VISIBLE) { if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) closeGlance(); return true }   // any tap dismisses the glance
+        if (briState in 0.03f..0.99f) { forcedEvening = false; updateClock() }     // evening dim: first touch brightens
+        return super.dispatchTouchEvent(ev)
+    }
     private fun goNight() { forcedNight = true; wakeUntil = 0; updateClock() }
 
     private fun confirm(title: String, msg: String, okLabel: String, ok: () -> Unit) {
@@ -1052,7 +1185,7 @@ class MainActivity : Activity(), Host {
         menu.addView(IconView(this, Ico(Ico.LEFT, C.INK, 26f, 2f), px(26)).apply { background = oval(C.FIELD); setOnClickListener { closeOverlay(); render() } },
             lp(px(36), px(36)).apply { leftMargin = px(22); bottomMargin = px(24) })
         val secs = listOf("General" to "icon_home_setting", "Calendar" to "icon_home_cal", "Tasks" to "icon_home_chore", "Sleep" to "icon_home_sleep",
-            "Wi-Fi" to "icon_home_wifi", "About" to "icon_home_more")
+            "Rewards" to "icon_home_reward", "Wi-Fi" to "icon_home_wifi", "About" to "icon_home_more")
         for ((n, ic) in secs) {
             val r = hbox(this).apply { setPadding(px(28), 0, px(10), 0); setOnClickListener { settings(n) }; if (n == sec || (sec == "Stars" && n == "Tasks")) foreground = SelBar() }
             r.addView(BmpView(this, Img.get(ic), px(30)))
@@ -1157,10 +1290,57 @@ class MainActivity : Activity(), Host {
                 row("Sleep Mode Schedule", sw("sleep_on", true) { updateClock() })
                 val dn = prefs.getString("sleep_days", "1111111")!!
                 row("Schedule", value((if (dn == "1111111") "Every day" else (0..6).filter { dn[it] == '1' }.joinToString(",") { Fmt.DOW[it] }) +
-                    "  ${Fmt.clock(mins(prefs.getString("sleep_start", "21:30")).coerceAtLeast(0))} – ${Fmt.clock(mins(prefs.getString("sleep_end", "06:30")).coerceAtLeast(0))}")) { sleepCard() }
+                    "  ${Fmt.clock(mins(prefs.getString("sleep_start", BuildCfg.SLEEP_START)).coerceAtLeast(0))} – ${Fmt.clock(mins(prefs.getString("sleep_end", BuildCfg.SLEEP_END)).coerceAtLeast(0))}")) { sleepCard() }
                 row("While asleep", cycle("sleep_dim", listOf("clock" to "Dim with clock", "black" to "Black screen"), "clock"))
                 row("Sleep mode after inactivity", sw("sleep_idle", false))
                 row("Sleep now", value("")) { closeOverlay(); goNight() }
+                head("Evening dimming")
+                row("Dim the screen in the evening", sw("eve_dim", BuildCfg.EVE_DIM) { updateClock() })
+                row("Dim from (until sleep starts)", cycle("eve_start", listOf("18:30", "19:00", "19:30", "20:00", "20:30", "21:00").map { it to Fmt.clock(mins(it)) }, BuildCfg.EVE_START) { updateClock() })
+                row("Evening brightness", cycle("eve_level", listOf("0.2" to "20%", "0.35" to "35%", "0.5" to "50%"), BuildCfg.EVE_LEVEL) { updateClock() })
+                head("Morning glance")
+                row("Show a morning summary when the screen wakes", sw("glance_on", BuildCfg.GLANCE_ON))
+                row("Window", cycle("glance_win", listOf("05:00-10:00", "06:00-09:00", "06:00-10:00", "07:00-10:00").let { l -> (if (BuildCfg.GLANCE_WINDOW in l) l else l + BuildCfg.GLANCE_WINDOW) }
+                    .map { w -> w to w.split("-").joinToString(" – ") { Fmt.clock(mins(it)) } }, BuildCfg.GLANCE_WINDOW))
+                row("Show it now", value("")) { closeOverlay(); showGlance() }
+            }
+            "Rewards" -> {
+                head("Rewards")
+                body.addView(text("Kids earn stars by finishing chores and spend them on rewards from the Rewards page.", 14f, C.MUT, lines = 2).apply { setPadding(0, 0, 0, px(14)) })
+                if (rewards.isEmpty()) row("No rewards yet", null, false)
+                for (r in rewards) {
+                    val who = r.profile?.let { pmap[it]?.name } ?: "Everyone"
+                    row("${r.emoji.ifEmpty { "🎁" }}  ${r.title}", hbox(this).apply {
+                        addView(text("⭐ ${r.cost}  ·  $who", 15f, C.MUT))
+                        addView(text("Delete", 15f, C.RED).apply { setPadding(px(24), px(10), 0, px(10)); setOnClickListener {
+                            confirm("Delete reward", "Remove “${r.title}”? Stars already spent are not affected.", "Delete") {
+                                api.call("DELETE", "/api/rewards/${r.id}", null, { rewards = rewards.filter { it.id != r.id }; refresh(); settings("Rewards") }, { toast(it) }) } } })
+                    })
+                }
+                head("Add a reward")
+                fun fld(h: String, w: Int) = EditText(this).apply { hint = h; setSingleLine(); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f)); background = round(C.FIELD, 8f); setPadding(px(14), px(12), px(14), px(12)) }
+                val em = fld("🎁", 0); val ti = fld("Reward, e.g. Pick the movie", 0)
+                var cost = 20; var forId: String? = null
+                val fr = hbox(this); fr.addView(em, lp(px(80), WRAP)); fr.addView(ti, lp(0, WRAP, 1f).apply { leftMargin = px(10) }); body.addView(fr, lp(MATCH, WRAP))
+                val costTv = text("⭐ $cost", 16f, C.INK).apply { gravity = Gravity.CENTER }
+                fun step(lbl: String, d: Int) = text(lbl, 20f, C.BLUE, C.MED).apply { gravity = Gravity.CENTER; background = round(C.FIELD, 18f); setOnClickListener { cost = (cost + d).coerceIn(1, 999); costTv.text = "⭐ $cost" } }
+                val forTv = text("For: Everyone", 16f, C.BLUE).apply { setPadding(px(16), px(10), px(16), px(10)); background = round(C.FIELD, 18f) }
+                val opts = listOf<Profile?>(null) + people
+                forTv.setOnClickListener { val i = (opts.indexOfFirst { it?.id == forId } + 1) % opts.size; forId = opts[i]?.id; forTv.text = "For: ${opts[i]?.name ?: "Everyone"}" }
+                val cr = hbox(this).apply { setPadding(0, px(14), 0, 0) }
+                cr.addView(text("Cost", 15f, C.INK), lp(px(60), WRAP))
+                cr.addView(step("−5", -5), lp(px(56), px(36))); cr.addView(step("−", -1), lp(px(44), px(36)).apply { leftMargin = px(6) })
+                cr.addView(costTv, lp(px(90), WRAP))
+                cr.addView(step("+", 1), lp(px(44), px(36))); cr.addView(step("+5", 5), lp(px(56), px(36)).apply { leftMargin = px(6) })
+                cr.addView(forTv.margins(px(24)))
+                cr.addView(View(this), lp(0, 1, 1f))
+                cr.addView(blueButton("Add") { v ->
+                    val t = ti.text.toString().trim(); if (t.isEmpty()) { toast("Give the reward a name"); return@blueButton }
+                    hideKb(v)
+                    val b = JSONObject().put("title", t).put("emoji", em.text.toString().trim().ifEmpty { "🎁" }).put("cost", cost).put("profile_id", forId ?: JSONObject.NULL)
+                    api.post("/api/rewards", b, { txt -> try { rewards = rewards + Parse.rewards(JSONArray().put(JSONObject(txt))) } catch (_: Exception) {}; refresh(); toast("Reward added"); settings("Rewards") }, { toast(it) })
+                }.apply { gravity = Gravity.CENTER }, lp(px(100), px(42)))
+                body.addView(cr, lp(MATCH, WRAP))
             }
             "Wi-Fi" -> {
                 head("Family server")
@@ -1202,7 +1382,7 @@ class MainActivity : Activity(), Host {
         }
         if (offline) titleTv.append("  ⚠")
         nightClock.text = if (Fmt.h24) Fmt.clock(m) else Fmt.clock(m).substring(0, 5).trimStart('0')
-        val a = mins(prefs.getString("sleep_start", "21:30")); val b = mins(prefs.getString("sleep_end", "06:30"))
+        val a = mins(prefs.getString("sleep_start", BuildCfg.SLEEP_START)); val b = mins(prefs.getString("sleep_end", BuildCfg.SLEEP_END))
         // the night belongs to the day it started on (Mon..Sun = 0..6), so Fri 9pm–Sat 6am follows Friday's box
         val dowNow = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7
         val startDow = if (a > b && m < b) (dowNow + 6) % 7 else dowNow
@@ -1212,10 +1392,17 @@ class MainActivity : Activity(), Host {
         val dim = (forcedNight || sleeping || idle) && System.currentTimeMillis() > wakeUntil
         val black = prefs.getString("sleep_dim", "clock") == "black"
         nightClock.visibility = if (black) View.GONE else View.VISIBLE
-        if (dim != (night.visibility == View.VISIBLE)) {
-            night.visibility = if (dim) View.VISIBLE else View.GONE
-            window.attributes = window.attributes.apply { screenBrightness = if (dim) (if (black) 0.0f else 0.02f) else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
-        }
+        val woke = !dim && night.visibility == View.VISIBLE
+        night.visibility = if (dim) View.VISIBLE else View.GONE
+        // evening dimming: only this app's window brightness, from "eve_start" until the sleep window; a touch restores it for 2 min
+        val es = mins(prefs.getString("eve_start", BuildCfg.EVE_START))
+        val evening = !dim && System.currentTimeMillis() - lastTouch > 120_000 && ovl.childCount == 0 && glance == null &&
+            (forcedEvening || prefs.getBoolean("eve_dim", BuildCfg.EVE_DIM) && es >= 0 && a >= 0 && (if (es <= a) m in es until a else (m >= es || m < a)))
+        val bri = if (dim) (if (black) 0.0f else 0.02f) else if (evening) (prefs.getString("eve_level", BuildCfg.EVE_LEVEL)!!.toFloatOrNull() ?: .35f)
+            else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        if (bri != briState) { briState = bri; window.attributes = window.attributes.apply { screenBrightness = bri } }
+        if (woke) ui.post { maybeGlance() }
+        glance?.let { if (it.tag != "forced" && !inGlanceWindow(m)) closeGlance() }
         if (prefs.getString("last_day", "") != today) { prefs.edit().putString("last_day", today).apply(); if (mode != "month") anchor = today; chipCache.clear(); ui.post { render(); refresh() } }
     }
 

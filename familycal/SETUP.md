@@ -74,3 +74,10 @@ adb shell am start -n com.bakerk7.familycalendar/.MainActivity --es url http://<
 ```
 Long-press the clock for settings (server, key, sleep hours, default view). To make it the home screen, pick it
 as the launcher in Android settings (optional; it does not replace or remove the stock app).
+
+## Optional extras (config.json)
+
+- **Morning glance** – `app.morning_glance {enabled, start, end}`: a summary page (today's events, weather, each person's open chores and next reward) shown when the screen wakes inside the window. Tap to dismiss. Also in Settings → Sleep.
+- **Night mode** – `app.night {evening_dim, evening_start, evening_level, sleep_start, sleep_end}`: the app dims its own window from `evening_start` until sleep starts, then shows the big clock. A touch wakes it. Settings → Sleep overrides these.
+- **Rewards** – `rewards [{title, emoji, cost, profile_id?}]` seed an empty database only; manage them in Settings → Rewards.
+- **Door alerts** – `doors {threshold_min, sensors:[{name, entity}]}` with Home Assistant `binary_sensor` door contacts. Put `HA_URL` and `HA_TOKEN` (a long-lived token) in the server's `.env`; the helper only reads `/api/states/<entity>`, and the tablet never sees the token. A pill such as "Garage open 12m" appears above the + button once a door has been open longer than the threshold. Test without opening doors: `POST /api/doors/fake {"name":"Garage","minutes":12}`, clear with `{"clear_all":true}`.

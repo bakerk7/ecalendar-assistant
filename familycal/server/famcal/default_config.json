@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to config.local.json (gitignored) and edit. android/build.sh reads the 'app' section; the helper server reads the rest (mount it as /data/config.json or set FAMCAL_CONFIG). Set the time zone with TZ / TZ_NAME in server/.env.",
+  "_comment": "Copy to config.local.json (gitignored) and edit. android/build.sh reads the 'app' section; the helper server reads the rest (mount it as /data/config.json or set FAMCAL_CONFIG). Set the time zone with TZ / TZ_NAME in server/.env. 'doors' needs HA_URL + HA_TOKEN in server/.env (read-only); leave sensors empty to disable. 'rewards' only seed an empty DB.",
   "family": {
     "name": "Family",
     "letter": "F",
@@ -105,11 +105,48 @@
     "signing": {
       "keystore": "~/.familycal/release.keystore",
       "password_file": "~/.familycal/release.keystore.pass"
+    },
+    "morning_glance": {
+      "enabled": true,
+      "start": "05:00",
+      "end": "10:00"
+    },
+    "night": {
+      "evening_dim": true,
+      "evening_start": "19:30",
+      "evening_level": 0.35,
+      "sleep_start": "21:30",
+      "sleep_end": "06:30"
     }
   },
   "weather": {
     "place": "New York, NY",
     "lat": 40.7128,
     "lon": -74.006
+  },
+  "rewards": [
+    {
+      "title": "Pick the movie",
+      "emoji": "🎬",
+      "cost": 20
+    },
+    {
+      "title": "Stay up 30 min late",
+      "emoji": "🌙",
+      "cost": 30
+    }
+  ],
+  "doors": {
+    "threshold_min": 5,
+    "sensors": [
+      {
+        "name": "Front",
+        "entity": "binary_sensor.front_door_contact"
+      },
+      {
+        "name": "Back",
+        "entity": "binary_sensor.back_door_contact"
+      }
+    ]
   }
 }
