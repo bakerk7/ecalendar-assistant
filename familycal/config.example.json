@@ -137,7 +137,7 @@
     }
   ],
   "doors": {
-    "threshold_min": 5,
+    "threshold_min": 0,
     "sensors": [
       {
         "name": "Front",

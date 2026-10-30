@@ -314,7 +314,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         return {"ok": True}
 
     # ------------------------------------------------------------ weather + tablet bundle
-    doors = Doors()
+    doors = Doors(ttl=1.5)  # app polls /api/doors every ~3 s; HA reads are 3 tiny GETs
     app.state.doors = doors
 
     @app.get("/api/doors", dependencies=A)
@@ -345,7 +345,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
                                "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),
                 "to_tag": len(svc.to_tag(1000)), "server_time": now(),
-                "doors": doors.status()["alerts"] if doors.cfg().get("sensors") else []}
+                "doors": doors.status()["doors"] if doors.cfg().get("sensors") else []}
 
     # ------------------------------------------------------------ Google OAuth (one-time)
     app.include_router(oauth.router(data_dir, A, svc))

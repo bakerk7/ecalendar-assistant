@@ -384,7 +384,7 @@ def test_doors_proxy_fake_and_threshold(env, monkeypatch):
     d = c.post("/api/doors/fake", headers=H, json={"name": "Garage", "minutes": 12}).json()
     assert [a["name"] for a in d["alerts"]] == ["Garage"] and d["alerts"][0]["open_min"] >= 12
     h = c.get("/api/home?start=2026-01-01&end=2026-01-02", headers=H).json()
-    assert [a["name"] for a in h["doors"]] == ["Garage"]
+    assert [(a["name"], a["open"]) for a in h["doors"]] == [("Front", False), ("Garage", True)]
     assert c.post("/api/doors/fake", headers=H, json={"clear_all": True}).json()["alerts"] == []
 
 

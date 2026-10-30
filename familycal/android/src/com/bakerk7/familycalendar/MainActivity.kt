@@ -51,7 +51,8 @@ class MainActivity : Activity(), Host {
     private var wakeUntil = 0L
     private var forcedEvening = false
     private var briState = -9f
-    private var doorAlerts = listOf<Pair<String, Long>>()     // door name, opened-at millis
+    private var doors = listOf<Triple<String, Boolean, Long>>()     // name, open, since (millis)
+    private var doorsJson = 0
     private lateinit var doorBox: LinearLayout
     private var glance: FrameLayout? = null
     private var lastGlance = 0L
@@ -120,8 +121,8 @@ class MainActivity : Activity(), Host {
     private val poll = object : Runnable {
         override fun run() { if (currentFocus !is EditText && ovl.childCount == 0) refresh(); ui.postDelayed(this, 60_000) }
     }
-    override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000); Rem.live = { l -> ui.post { showReminders(l) } } }
-    override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll); Rem.live = null }
+    override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000); ui.post(doorPoll); Rem.live = { l -> ui.post { showReminders(l) } } }
+    override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll); ui.removeCallbacks(doorPoll); Rem.live = null }
 
     /** Stock-style reminder popup on its own layer (never closes an open sheet) + notification sound; wakes sleep mode. */
     private var remLayer: FrameLayout? = null
@@ -215,6 +216,7 @@ class MainActivity : Activity(), Host {
         nightClock = text("", 160f, Color.parseColor("#3A3F4A"), C.REG).apply { gravity = Gravity.CENTER }
         night.addView(nightClock, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         root.addView(night, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.removeView(doorBox); root.addView(doorBox)     // door pills stay visible over the night clock and the glance
         setContentView(root)
         updateClock()
     }
@@ -232,6 +234,7 @@ class MainActivity : Activity(), Host {
         item("cal", "icon_home_cal") { page = "cal"; if (mode == "week" && anchor == D.today()) mode = "month"; render() }
         item("chores", "icon_home_chore") { page = "chores"; if (choresDate != D.today()) { choresDate = D.today(); lastJson = 0; refresh() }; render() }
         item("rewards", "icon_home_reward") { page = "rewards"; render() }
+        item("glance", "wx") { showGlance() }
         rail.addView(View(this), lp(1, 0, 1f))
         item("sleep", "icon_home_sleep") { sleepCard() }
         item("more", "icon_home_more") { moreMenu() }
@@ -275,9 +278,7 @@ class MainActivity : Activity(), Host {
         cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
-        doorAlerts = j.optJSONArray("doors")?.let { a -> (0 until a.length()).map { k -> val o = a.getJSONObject(k)
-            val since = try { java.time.OffsetDateTime.parse(o.optString("since")).toInstant().toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() - 60_000L * o.optInt("open_min") }
-            o.optString("name") to since } } ?: emptyList()
+        doors = parseDoors(j.optJSONArray("doors"))
         Rem.store(this, j.optJSONArray("reminders"))
         chipCache.clear()
     }
@@ -525,15 +526,27 @@ class MainActivity : Activity(), Host {
     // ================================================================= door pills
     private fun doorAge(since: Long): String { val m = ((System.currentTimeMillis() - since) / 60_000).coerceAtLeast(0)
         return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+    private fun parseDoors(a: JSONArray?) = a?.let { (0 until it.length()).map { k -> val o = it.getJSONObject(k)
+        val since = try { java.time.OffsetDateTime.parse(o.optString("since")).toInstant().toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() - 60_000L * o.optInt("open_min") }
+        Triple(o.optString("name"), o.optBoolean("open"), since) }.filter { d -> d.first.isNotEmpty() } } ?: emptyList()
+    /** Live door status: tiny /api/doors poll every 3 s while the app is in front (helper caches HA for 1.5 s). */
+    private val doorPoll = object : Runnable { override fun run() {
+        api.get("/api/doors", { txt -> if (txt.hashCode() != doorsJson) { doorsJson = txt.hashCode()
+            try { doors = parseDoors(JSONObject(txt).optJSONArray("doors")); renderDoors() } catch (_: Exception) {} } })
+        ui.postDelayed(this, 3_000) } }
     private fun renderDoors() {
         if (!::doorBox.isInitialized) return
         doorBox.removeAllViews()
-        (doorBox.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (::fab.isInitialized && fab.visibility == View.VISIBLE) px(57 + 56 + 14) else px(24); doorBox.layoutParams = it }
-        for ((name, since) in doorAlerts) {
-            val pill = hbox(this).apply { background = round(Color.WHITE, 18f, Color.parseColor("#E3E6EC"), fpx(1.5f)); setPadding(px(14), 0, px(16), 0); elevation = fpx(3f) }
-            pill.addView(View(this).apply { background = oval(Color.parseColor("#F5A524")) }, lp(px(10), px(10)).apply { rightMargin = px(10) })
-            pill.addView(text("$name open ${doorAge(since)}", 15f, C.INK, C.MED))
-            doorBox.addView(pill, lp(WRAP, px(36)).apply { topMargin = px(8) })
+        val dark = night.visibility == View.VISIBLE
+        val bare = dark || glance != null || !(::fab.isInitialized && fab.visibility == View.VISIBLE)
+        (doorBox.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (bare) px(40) else px(57 + 56 + 14); doorBox.layoutParams = it }
+        for ((name, open, since) in doors) {
+            val pill = hbox(this).apply { background = if (dark) round(Color.parseColor("#1C1F26"), 18f, Color.parseColor("#3A3F4A"), fpx(1.5f)) else round(Color.WHITE, 18f, Color.parseColor("#E3E6EC"), fpx(1.5f))
+                setPadding(px(14), 0, px(16), 0); elevation = if (dark) 0f else fpx(3f) }
+            pill.addView(View(this).apply { background = oval(Color.parseColor(if (open) "#F5A524" else "#34C77B")) }, lp(px(10), px(10)).apply { rightMargin = px(10) })
+            val col = if (dark) Color.parseColor(if (open) "#E3E7EE" else "#6B717C") else if (open) C.INK else C.MUT
+            pill.addView(text(if (open) "$name open ${doorAge(since)}" else "$name closed", if (dark) 22f else 15f, col, if (open) C.MED else C.REG))
+            doorBox.addView(pill, lp(WRAP, px(if (dark) 48 else 36)).apply { topMargin = px(8) })
         }
     }
 
@@ -559,7 +572,7 @@ class MainActivity : Activity(), Host {
         if (glance != null || System.currentTimeMillis() - lastGlance < 20 * 60_000) return
         showGlance(false)
     }
-    private fun closeGlance() { glance?.let { root.removeView(it) }; glance = null; updateClock() }
+    private fun closeGlance() { glance?.let { root.removeView(it) }; glance = null; updateClock(); render() }
     private fun showGlance(forced: Boolean = true) {
         lastGlance = System.currentTimeMillis()
         val today = D.today()
@@ -1403,6 +1416,7 @@ class MainActivity : Activity(), Host {
         if (bri != briState) { briState = bri; window.attributes = window.attributes.apply { screenBrightness = bri } }
         if (woke) ui.post { maybeGlance() }
         glance?.let { if (it.tag != "forced" && !inGlanceWindow(m)) closeGlance() }
+        renderDoors()
         if (prefs.getString("last_day", "") != today) { prefs.edit().putString("last_day", today).apply(); if (mode != "month") anchor = today; chipCache.clear(); ui.post { render(); refresh() } }
     }
 
