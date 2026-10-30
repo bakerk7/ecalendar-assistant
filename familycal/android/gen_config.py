@@ -41,6 +41,8 @@ object BuildCfg {{
     const val EVE_LEVEL = {ks(str(nt.get("evening_level", 0.35)))}
     const val SLEEP_START = {ks(nt.get("sleep_start", "21:30"))}
     const val SLEEP_END = {ks(nt.get("sleep_end", "06:30"))}
+    const val SLEEP_STYLE = {ks(nt.get("screen", "off"))}
+    const val WAKE_MIN = {int(nt.get("wake_minutes", 3))}
 }}
 """
 os.makedirs(os.path.join(out, "gen"), exist_ok=True)

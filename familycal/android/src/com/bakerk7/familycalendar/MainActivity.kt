@@ -115,13 +115,17 @@ class MainActivity : Activity(), Host {
         i?.getStringExtra("date")?.let { anchor = it }
         if (i?.hasExtra("evening") == true) { forcedEvening = i.getBooleanExtra("evening", false); lastTouch = 0 }
         if (i?.getBooleanExtra("glance", false) == true) ui.post { showGlance() }
+        if (i?.getBooleanExtra("morning", false) == true) { setTurnScreenOn(true); lockedByUs = false; wakeUntil = 0; forcedNight = false }
     }
 
     private val tick = object : Runnable { override fun run() { updateClock(); renderDoors(); ui.postDelayed(this, 15_000) } }
     private val poll = object : Runnable {
         override fun run() { if (currentFocus !is EditText && ovl.childCount == 0) refresh(); ui.postDelayed(this, 60_000) }
     }
-    override fun onResume() { super.onResume(); ui.post(tick); ui.postDelayed(poll, 60_000); ui.post(doorPoll); Rem.live = { l -> ui.post { showReminders(l) } } }
+    override fun onResume() { super.onResume()
+        // screen came back on after we switched it off (double-tap, doorbell overlay, reminder): stay awake a few minutes
+        if (lockedByUs) { lockedByUs = false; wakeUntil = System.currentTimeMillis() + 60_000L * wakeMin(); lastTouch = System.currentTimeMillis() }
+        ui.post(tick); ui.postDelayed(poll, 60_000); ui.post(doorPoll); Rem.live = { l -> ui.post { showReminders(l) } } }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick); ui.removeCallbacks(poll); ui.removeCallbacks(doorPoll); Rem.live = null }
 
     /** Stock-style reminder popup on its own layer (never closes an open sheet) + notification sound; wakes sleep mode. */
@@ -211,7 +215,7 @@ class MainActivity : Activity(), Host {
 
         night = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK); visibility = View.GONE; isClickable = true
-            setOnClickListener { wakeUntil = System.currentTimeMillis() + 60_000; forcedNight = false; lastTouch = System.currentTimeMillis(); updateClock() }
+            setOnClickListener { wakeUntil = System.currentTimeMillis() + 60_000L * wakeMin(); forcedNight = false; lastTouch = System.currentTimeMillis(); updateClock() }
         }
         nightClock = text("", 160f, Color.parseColor("#3A3F4A"), C.REG).apply { gravity = Gravity.CENTER }
         night.addView(nightClock, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
@@ -744,13 +748,13 @@ class MainActivity : Activity(), Host {
         val s = scrim()
         val c = card(px(500)).apply { setPadding(px(34), px(30), px(34), px(30)) }
         val h = hbox(this); h.addView(text("Sleep Mode", 24f, C.INK, C.BOLD), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
-        c.addView(text("Sleep mode dims the screen between scheduled times. Tap the screen at any time to wake it for a minute.", 14f, C.MUT, lines = 3).apply { setPadding(0, px(18), 0, px(12)) })
+        c.addView(text("Sleep mode turns the screen off between scheduled times. Double-tap the screen to wake it for a few minutes.", 14f, C.MUT, lines = 3).apply { setPadding(0, px(18), 0, px(12)) })
         var on = prefs.getBoolean("sleep_on", true)
         val days = StringBuilder(prefs.getString("sleep_days", "1111111")!!)
         var a = mins(prefs.getString("sleep_start", BuildCfg.SLEEP_START)).takeIf { it >= 0 } ?: (21 * 60 + 30)
         var b = mins(prefs.getString("sleep_end", BuildCfg.SLEEP_END)).takeIf { it >= 0 } ?: (6 * 60 + 30)
         var idle = prefs.getBoolean("sleep_idle", false); var idleMin = prefs.getInt("sleep_idle_min", 10)
-        var dim = prefs.getString("sleep_dim", "clock")!!
+        var dim = sleepStyle()
         c.addView(switchRow(-1, "Sleep Mode Schedule", on) { on = it }.first, lp(MATCH, WRAP))
         c.addView(text("Schedule", 15f).apply { setPadding(0, px(18), 0, px(10)) })
         val sb = vbox(this).apply { background = round(C.FIELD, 8f); setPadding(px(12), px(12), px(12), px(12)) }
@@ -770,7 +774,7 @@ class MainActivity : Activity(), Host {
         sb.addView(tr, lp(MATCH, WRAP)); c.addView(sb, lp(MATCH, WRAP))
         // screen style while asleep
         c.addView(text("While asleep", 15f).apply { setPadding(0, px(18), 0, px(4)) })
-        val dl = vbox(this); val DIM = listOf("clock" to "Dim with clock", "black" to "Black screen")
+        val dl = vbox(this); val DIM = listOf("off" to "Screen off", "clock" to "Dim with clock", "black" to "Black screen")
         fun drawDim() = choice(dl, DIM.map { it.second }, DIM.indexOfFirst { it.first == dim }.coerceAtLeast(0)) { i -> dim = DIM[i].first; drawDimLater() }
         dimFn = { drawDim() }; drawDim(); dl.background = round(C.FIELD, 8f); dl.setPadding(px(8), px(2), px(8), px(8))
         c.addView(dl, lp(MATCH, WRAP))
@@ -799,6 +803,14 @@ class MainActivity : Activity(), Host {
         if (briState in 0.03f..0.99f) { forcedEvening = false; updateClock() }     // evening dim: first touch brightens
         return super.dispatchTouchEvent(ev)
     }
+    private var lockedByUs = false
+    private var offPending = false
+    /** "off" = backlight off (default; needs the SleepAdmin device admin, else falls back to "black"), "black", "clock". */
+    private fun sleepStyle(): String {
+        if (!prefs.getBoolean("sleep_style_v2", false)) prefs.edit().remove("sleep_dim").putBoolean("sleep_style_v2", true).apply()
+        return prefs.getString("sleep_dim", BuildCfg.SLEEP_STYLE)!!
+    }
+    private fun wakeMin() = prefs.getInt("wake_min", BuildCfg.WAKE_MIN)
     private fun goNight() { forcedNight = true; wakeUntil = 0; updateClock() }
 
     private fun confirm(title: String, msg: String, okLabel: String, ok: () -> Unit) {
@@ -1304,7 +1316,9 @@ class MainActivity : Activity(), Host {
                 val dn = prefs.getString("sleep_days", "1111111")!!
                 row("Schedule", value((if (dn == "1111111") "Every day" else (0..6).filter { dn[it] == '1' }.joinToString(",") { Fmt.DOW[it] }) +
                     "  ${Fmt.clock(mins(prefs.getString("sleep_start", BuildCfg.SLEEP_START)).coerceAtLeast(0))} – ${Fmt.clock(mins(prefs.getString("sleep_end", BuildCfg.SLEEP_END)).coerceAtLeast(0))}")) { sleepCard() }
-                row("While asleep", cycle("sleep_dim", listOf("clock" to "Dim with clock", "black" to "Black screen"), "clock"))
+                row("While asleep", cycle("sleep_dim", listOf("off" to "Screen off", "clock" to "Dim with clock", "black" to "Black screen"), BuildCfg.SLEEP_STYLE))
+                row("Touch wakes it for", cycle("wake_min_s", listOf("1", "3", "5", "10").map { it to "$it min" }, BuildCfg.WAKE_MIN.toString()) {
+                    prefs.edit().putInt("wake_min", prefs.getString("wake_min_s", "3")!!.toInt()).apply() })
                 row("Sleep mode after inactivity", sw("sleep_idle", false))
                 row("Sleep now", value("")) { closeOverlay(); goNight() }
                 head("Evening dimming")
@@ -1403,8 +1417,15 @@ class MainActivity : Activity(), Host {
         val sleeping = prefs.getBoolean("sleep_on", true) && inWindow && prefs.getString("sleep_days", "1111111")!!.getOrElse(startDow) { '1' } == '1'
         val idle = prefs.getBoolean("sleep_idle", false) && System.currentTimeMillis() - lastTouch > 60_000L * prefs.getInt("sleep_idle_min", 10) && ovl.childCount == 0
         val dim = (forcedNight || sleeping || idle) && System.currentTimeMillis() > wakeUntil
-        val black = prefs.getString("sleep_dim", "clock") == "black"
+        val style = sleepStyle()
+        val black = style != "clock"
         nightClock.visibility = if (black) View.GONE else View.VISIBLE
+        if (dim && style == "off") {
+            Sleep.scheduleWake(this, prefs.getString("sleep_end", BuildCfg.SLEEP_END))
+            if (!offPending && Sleep.screenOn(this)) { offPending = true
+                ui.postDelayed({ offPending = false
+                    if (night.visibility == View.VISIBLE && System.currentTimeMillis() > wakeUntil && Sleep.screenOff(this)) lockedByUs = true }, 2_000) }
+        }
         val woke = !dim && night.visibility == View.VISIBLE
         night.visibility = if (dim) View.VISIBLE else View.GONE
         // evening dimming: only this app's window brightness, from "eve_start" until the sleep window; a touch restores it for 2 min

@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <application android:label="Family Calendar" android:allowBackup="false"
         android:usesCleartextTraffic="true" android:largeHeap="false" android:hardwareAccelerated="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen">
@@ -23,5 +24,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
             </intent-filter>
         </receiver>
+        <!-- night mode: screen off via force-lock (lock screen is disabled, so it's a plain backlight-off) -->
+        <receiver android:name=".SleepAdmin" android:exported="true" android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/sleep_admin"/>
+            <intent-filter><action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/></intent-filter>
+        </receiver>
+        <receiver android:name=".WakeReceiver" android:exported="false"/>
     </application>
 </manifest>

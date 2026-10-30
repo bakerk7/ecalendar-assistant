@@ -120,7 +120,10 @@
       "evening_start": "19:30",
       "evening_level": 0.35,
       "sleep_start": "21:30",
-      "sleep_end": "06:30"
+      "sleep_end": "06:30",
+      "screen": "off",
+      "wake_minutes": 3,
+      "_comment": "screen: off (backlight off; double-tap wakes for wake_minutes) | clock (dim clock) | black. Screen-off needs once: adb shell dpm set-active-admin com.bakerk7.familycalendar/.SleepAdmin"
     }
   },
   "weather": {

@@ -85,6 +85,6 @@ object Rem {
 
 class RemReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        if (i.action == Intent.ACTION_BOOT_COMPLETED || i.action == Intent.ACTION_MY_PACKAGE_REPLACED) Rem.schedule(c) else Rem.fire(c)
+        if (i.action == Intent.ACTION_BOOT_COMPLETED || i.action == Intent.ACTION_MY_PACKAGE_REPLACED) { Rem.schedule(c); Sleep.scheduleWake(c, c.getSharedPreferences("cfg", Context.MODE_PRIVATE).getString("sleep_end", BuildCfg.SLEEP_END)) } else Rem.fire(c)
     }
 }
