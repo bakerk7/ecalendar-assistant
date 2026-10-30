@@ -65,6 +65,7 @@ class MainActivity : Activity(), Host {
     private lateinit var band: View
     private lateinit var pageHost: FrameLayout
     private lateinit var fab: View
+    private lateinit var camFab: View
     private lateinit var ovl: FrameLayout
     private lateinit var night: FrameLayout
     private lateinit var nightClock: TextView
@@ -178,6 +179,12 @@ class MainActivity : Activity(), Host {
             background = oval(C.FAB); setOnClickListener { fabMenu() }
             addView(IconView(context, Ico(Ico.PLUS, Color.WHITE, 34f, 2.2f), px(34)), FrameLayout.LayoutParams(px(34), px(34), Gravity.CENTER)) }
         root.addView(fab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57)) })
+        // Doorbell camera: same explicit broadcast the ring listener sends; the overlay app shows live video for 10 s
+        // in a system overlay window (no Activity), so the calendar stays in the foreground underneath.
+        camFab = FrameLayout(this).apply {
+            background = oval(C.FAB); setOnClickListener { showDoorbell() }
+            addView(IconView(context, Ico(Ico.VIDEO, Color.WHITE, 30f, 2.2f), px(30)), FrameLayout.LayoutParams(px(30), px(30), Gravity.CENTER)) }
+        root.addView(camFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16), px(57)) })
 
         ovl = FrameLayout(this)
         root.addView(ovl, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -297,6 +304,7 @@ class MainActivity : Activity(), Host {
         profBar.visibility = if (onCal) View.VISIBLE else View.GONE
         band.visibility = profBar.visibility
         fab.visibility = if (page == "rewards" || !prefs.getBoolean("show_fab", true)) View.GONE else View.VISIBLE
+        camFab.visibility = fab.visibility
         if (onCal) renderProfiles()
         pageHost.removeAllViews()
         val v: View = when (page) {
@@ -516,6 +524,15 @@ class MainActivity : Activity(), Host {
             b.addView(menuRow(m.replaceFirstChar { it.uppercase() }, m == mode) {
                 if (mode != m) { mode = m; if (m != "month") anchor = if (anchor.substring(0, 7) == D.today().substring(0, 7)) D.today() else anchor; render(); refresh() }
             })
+    }
+
+    private var lastCam = 0L
+    private fun showDoorbell() {
+        val now = System.currentTimeMillis(); if (now - lastCam < 2000) return; lastCam = now
+        try {
+            sendBroadcast(android.content.Intent().setClassName("com.bakerk7.doorbelloverlay", "com.bakerk7.doorbelloverlay.RingReceiver")
+                .addFlags(android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES))
+        } catch (e: Exception) { toast("Camera unavailable") }
     }
 
     private fun filterMenu(a: View) = dropdown(a, px(400)) { b ->
@@ -1071,7 +1088,7 @@ class MainActivity : Activity(), Host {
                 head("General")
                 row("Time zone", value(java.util.TimeZone.getDefault().getDisplayName(false, java.util.TimeZone.LONG).replace(" Standard", "")
                     .replace("Central Time", "Central Time"), false))
-                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE })
+                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = fab.visibility })
                 row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
                 head("Show")

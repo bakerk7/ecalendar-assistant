@@ -135,7 +135,7 @@ fun drawAvatar(c: Canvas, p: Profile, bmp: Bitmap?, x: Float, y: Float, s: Float
 class Ico(private val kind: Int, private val color: Int, private val sizePx: Float, private val stroke: Float = 2f) : Drawable() {
     companion object { const val DOWN = 0; const val UP = 1; const val LEFT = 2; const val RIGHT = 3; const val PLUS = 4; const val CLOSE = 5
         const val REFRESH = 6; const val WIFI = 7; const val SUN = 8; const val CHECK = 9; const val CIRCLE_PLUS = 10; const val PERSON = 11
-        const val CLOCK = 12; const val REPEAT = 13; const val PENCIL = 14; const val TRASH = 15; const val CHECKBOX = 16 }
+        const val CLOCK = 12; const val REPEAT = 13; const val PENCIL = 14; const val TRASH = 15; const val CHECKBOX = 16; const val VIDEO = 17 }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val path = Path(); private val rf = RectF()
     init { setBounds(0, 0, px(sizePx), px(sizePx)) }
@@ -165,6 +165,8 @@ class Ico(private val kind: Int, private val color: Int, private val sizePx: Flo
                 for (k in 0 until 8) { val a = Math.toRadians(k * 45.0); val cs = Math.cos(a).toFloat(); val sn = Math.sin(a).toFloat()
                     c.drawLine(X(.5f + cs * .34f), Y(.5f + sn * .34f), X(.5f + cs * .45f), Y(.5f + sn * .45f), p) } }
             CHECK -> { path.moveTo(X(.22f), Y(.52f)); path.lineTo(X(.42f), Y(.72f)); path.lineTo(X(.78f), Y(.32f)); c.drawPath(path, p) }
+            VIDEO -> { rf.set(X(.1f), Y(.3f), X(.64f), Y(.7f)); c.drawRoundRect(rf, s * .08f, s * .08f, p)
+                path.moveTo(X(.64f), Y(.45f)); path.lineTo(X(.9f), Y(.32f)); path.lineTo(X(.9f), Y(.68f)); path.lineTo(X(.64f), Y(.55f)); path.close(); c.drawPath(path, p) }
             CHECKBOX -> { c.drawCircle(X(.5f), Y(.5f), s * .42f, p); path.moveTo(X(.3f), Y(.52f)); path.lineTo(X(.45f), Y(.66f)); path.lineTo(X(.72f), Y(.38f)); c.drawPath(path, p) }
             PERSON -> { c.drawCircle(X(.5f), Y(.34f), s * .16f, p); rf.set(X(.2f), Y(.58f), X(.8f), Y(1.1f)); c.drawArc(rf, 180f, 180f, false, p) }
             CLOCK -> { c.drawCircle(X(.5f), Y(.54f), s * .34f, p); path.moveTo(X(.5f), Y(.36f)); path.lineTo(X(.5f), Y(.56f)); path.lineTo(X(.64f), Y(.64f)); c.drawPath(path, p)
