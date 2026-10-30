@@ -1,8 +1,8 @@
 """One-time import from the stock app's Room DB (calendar_db) pulled off the tablet.
 
 python -m famcal.importer /path/to/calendar_db [--data /data]
-- profiles: names/colors/ecal ids (Jack, Liv, Mom, Dad, Bruce)
-- calendars: 'Shared Calendar you@example.com' -> shared, 'Boys U9 ...' -> soccer
+- profiles: names/colors/ecal ids (matched by name to the profiles in config.json)
+- calendars: 'Shared Calendar you@example.com' -> shared, the other calendar category -> the feed calendar ('soccer')
 - events (eventType 0): Google-synced ones keep their Google event id (syncThirdEventId) so tags
   line up after the real Google switch; eCalendar-only ones are marked origin=ecal-native.
 - per-event people tags (userCalendarCategoryIds minus calendar categories); none -> Family
@@ -17,7 +17,8 @@ from .db import DB, now
 from .sources import FixtureSource, TZ
 
 UTC = ZoneInfo("UTC")
-NAME2ID = {"jack": "jack", "liv": "liv", "mom": "mom", "dad": "dad", "bruce": "bruce"}
+from . import config
+NAME2ID = {p[1].lower(): p[0] for p in config.profiles()}  # stock profile name (lower) -> our id
 
 def _emoji(v):
     """eCalendar stores emoji by Unicode name ("DOG FACE"); turn it back into the character."""
@@ -48,8 +49,7 @@ def run(src_path, db: DB, fixture: FixtureSource, today=None):
         if pid:
             cat2prof[c["userCalendarCategoryId"]] = pid
             color = c["categoryColor"] or "#888888"
-            if pid == "jack":
-                color = "#3B9BF6"  # eCalendar gave Jack + soccer feed the same blue; keep Jack distinct
+            color = config.importer().get("color_overrides", {}).get(pid, color)  # e.g. keep a profile distinct from the feed colour
             db.x("UPDATE profiles SET color=?, ecal_id=? WHERE id=?", (color, c["userCalendarCategoryId"], pid))
         elif "shared calendar" in nm.lower():
             cat2cal[c["userCalendarCategoryId"]] = "shared"
@@ -113,7 +113,7 @@ def run(src_path, db: DB, fixture: FixtureSource, today=None):
         if people:
             src, review = "import", 0
         elif cal == "soccer":
-            people, src, review = ["jack"], "rule", 0
+            people, src, review = [p for p in [config.importer().get("feed_calendar_profile")] if p], "rule", 0
         else:
             src, review = "import", 0  # was untagged in eCalendar too -> Family, no review nag for history
         db.x("INSERT OR REPLACE INTO tags(event_id,profiles,source,rule,needs_review,updated) VALUES(?,?,?,?,?,?)",
@@ -132,7 +132,7 @@ def run(src_path, db: DB, fixture: FixtureSource, today=None):
     for r in s.execute("SELECT * FROM calendar_event WHERE eventType='2'"):
         r = dict(r)
         ids = json.loads(r["userCalendarCategoryIds"] or "[]")
-        people = [cat2prof[i] for i in ids if i in cat2prof] or ["dad"]
+        people = [cat2prof[i] for i in ids if i in cat2prof] or [config.importer().get("default_chore_profile") or next(iter(NAME2ID.values()), "family")]
         rule = r["rrule"] or ""
         until = None
         if "UNTIL=" in rule:

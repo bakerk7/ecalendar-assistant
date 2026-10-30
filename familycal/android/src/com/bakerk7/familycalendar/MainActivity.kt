@@ -179,11 +179,13 @@ class MainActivity : Activity(), Host {
             background = oval(C.FAB); setOnClickListener { fabMenu() }
             addView(IconView(context, Ico(Ico.PLUS, Color.WHITE, 34f, 2.2f), px(34)), FrameLayout.LayoutParams(px(34), px(34), Gravity.CENTER)) }
         root.addView(fab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57)) })
-        // Doorbell camera: same explicit broadcast the ring listener sends; the overlay app shows live video for 10 s
+        // Optional camera button (config app.camera): sends an explicit broadcast to package/receiver, e.g. the doorbell
+        // overlay's RingReceiver, which shows live video for 10 s
         // in a system overlay window (no Activity), so the calendar stays in the foreground underneath.
         camFab = FrameLayout(this).apply {
             background = oval(C.FAB); setOnClickListener { showDoorbell() }
             addView(IconView(context, Ico(Ico.VIDEO, Color.WHITE, 30f, 2.2f), px(30)), FrameLayout.LayoutParams(px(30), px(30), Gravity.CENTER)) }
+        camFab.contentDescription = BuildCfg.CAMERA_LABEL
         root.addView(camFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16), px(57)) })
 
         ovl = FrameLayout(this)
@@ -261,7 +263,8 @@ class MainActivity : Activity(), Host {
     }
 
     /** Stock eCalendar shows parents first (Dad, Mom, Liv, Jack); pets last. */
-    private fun order(ps: List<Profile>) = ps.filter { !it.group }.let { l -> l.filter { it.id != "bruce" }.reversed() + l.filter { it.id == "bruce" } }
+    /** Column/bar order: config app.profile_order (ids), others after in server sort order. */
+    private fun order(ps: List<Profile>) = ps.filter { !it.group }.sortedBy { p -> BuildCfg.PROFILE_ORDER.indexOf(p.id).let { if (it < 0) Int.MAX_VALUE else it } }
 
     // ================================================================= Host
     override fun prof(id: String) = pmap[id] ?: Profile(id, id.replaceFirstChar { it.uppercase() }, Color.GRAY, "", 0, true)
@@ -304,7 +307,7 @@ class MainActivity : Activity(), Host {
         profBar.visibility = if (onCal) View.VISIBLE else View.GONE
         band.visibility = profBar.visibility
         fab.visibility = if (page == "rewards" || !prefs.getBoolean("show_fab", true)) View.GONE else View.VISIBLE
-        camFab.visibility = fab.visibility
+        camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility
         if (onCal) renderProfiles()
         pageHost.removeAllViews()
         val v: View = when (page) {
@@ -530,7 +533,7 @@ class MainActivity : Activity(), Host {
     private fun showDoorbell() {
         val now = System.currentTimeMillis(); if (now - lastCam < 2000) return; lastCam = now
         try {
-            sendBroadcast(android.content.Intent().setClassName("com.bakerk7.doorbelloverlay", "com.bakerk7.doorbelloverlay.RingReceiver")
+            sendBroadcast(android.content.Intent().setClassName(BuildCfg.CAMERA_PKG, BuildCfg.CAMERA_RECEIVER)
                 .addFlags(android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES))
         } catch (e: Exception) { toast("Camera unavailable") }
     }
@@ -1088,7 +1091,7 @@ class MainActivity : Activity(), Host {
                 head("General")
                 row("Time zone", value(java.util.TimeZone.getDefault().getDisplayName(false, java.util.TimeZone.LONG).replace(" Standard", "")
                     .replace("Central Time", "Central Time"), false))
-                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = fab.visibility })
+                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility })
                 row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
                 head("Show")

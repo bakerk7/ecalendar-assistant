@@ -1,0 +1,134 @@
+{
+  "family": {
+    "name": "Family",
+    "letter": "S",
+    "color": "#6B7280",
+    "emoji": "🏠"
+  },
+  "profiles": [
+    {
+      "id": "jack",
+      "name": "Jack",
+      "color": "#4DBAFD",
+      "emoji": "⚽",
+      "aliases": [
+        "jack"
+      ]
+    },
+    {
+      "id": "liv",
+      "name": "Liv",
+      "color": "#E264FF",
+      "emoji": "🦄",
+      "aliases": [
+        "liv",
+        "livvy",
+        "olivia"
+      ]
+    },
+    {
+      "id": "mom",
+      "name": "Mom",
+      "color": "#17C096",
+      "emoji": "🌿",
+      "aliases": [
+        "mom",
+        "sara"
+      ]
+    },
+    {
+      "id": "dad",
+      "name": "Dad",
+      "color": "#EE1B1B",
+      "emoji": "🔧",
+      "aliases": [
+        "dad",
+        "kyle"
+      ]
+    },
+    {
+      "id": "bruce",
+      "name": "Bruce",
+      "color": "#F5A524",
+      "emoji": "🐶",
+      "aliases": [
+        "bruce"
+      ]
+    }
+  ],
+  "calendars": [
+    {
+      "id": "shared",
+      "name": "Shared Calendar",
+      "color": "#2B45DE",
+      "writable": true,
+      "env": "FAMCAL_SHARED_CAL_ID"
+    },
+    {
+      "id": "soccer",
+      "name": "Boys U9 Academy 2 White",
+      "color": "#4DBAFD",
+      "writable": false,
+      "env": "FAMCAL_SOCCER_ICS"
+    }
+  ],
+  "rules": [
+    {
+      "kind": "calendar",
+      "pattern": "soccer",
+      "profiles": [
+        "jack"
+      ],
+      "priority": 10,
+      "note": "Boys U9 Academy 2 White feed is Jack's"
+    },
+    {
+      "kind": "keyword",
+      "pattern": "\\b(soccer|u9|academy)\\b",
+      "profiles": [
+        "jack"
+      ],
+      "priority": 50,
+      "note": "soccer -> Jack"
+    },
+    {
+      "kind": "keyword",
+      "pattern": "\\bswim(ming)?\\b",
+      "profiles": [
+        "jack",
+        "liv"
+      ],
+      "priority": 60,
+      "note": "swim -> Jack + Liv"
+    },
+    {
+      "kind": "keyword",
+      "pattern": "\\b(vet|groom(er|ing)?|dog park)\\b",
+      "profiles": [
+        "bruce"
+      ],
+      "priority": 60,
+      "note": "dog stuff -> Bruce"
+    },
+    {
+      "kind": "name",
+      "pattern": "",
+      "profiles": [],
+      "priority": 80,
+      "note": "names in title (Jack, Liv, Mom/Sara, Dad/Kyle, Bruce)"
+    }
+  ],
+  "importer": {
+    "feed_calendar_profile": "jack",
+    "default_chore_profile": "dad",
+    "color_overrides": {
+      "jack": "#3B9BF6"
+    }
+  },
+  "app": {},
+  "weather": {
+    "place": "Testville",
+    "lat": 40.0,
+    "lon": -90.0
+  }
+}

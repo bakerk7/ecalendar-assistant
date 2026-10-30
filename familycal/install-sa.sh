@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the Google service-account key for the Family Calendar helper on bakerserver.
+# Install the Google service-account key for the Family Calendar helper on your docker host (FAMCAL_HOST).
 #   GOOGLE_SA_JSON = the key JSON itself (or a path to the .json file)
 #   optional: SHARED_CAL_ID (default: discovered from the eCalendar import)
 #             SOCCER_ICS    (default: ICS_URL from soccer_sync.py)
@@ -7,7 +7,7 @@
 # Never prints the key. Prereq: in Google Calendar, share "Shared Calendar" with the service
 # account's email -> "Make changes to events".
 set -euo pipefail
-HOST=${FAMCAL_HOST:-bakerk7@bakerserver}
+HOST=${FAMCAL_HOST:?set FAMCAL_HOST=user@your-docker-host (reached with tailscale ssh)}
 STACK='~/docker-stacks/familycal'
 ssh_() { tailscale ssh "$HOST" "$@"; }
 

@@ -5,24 +5,15 @@ for the same title > rules by priority (calendar, keyword, creator) > default Fa
 """
 import json, re
 
-DEFAULT_RULES = [
-    # kind, pattern, profiles, priority, note
-    ("calendar", "soccer", ["jack"], 10, "Boys U9 Academy 2 White feed is Jack's"),
-    ("keyword", r"\b(soccer|u9|academy)\b", ["jack"], 50, "soccer -> Jack"),
-    ("keyword", r"\bswim(ming)?\b", ["jack", "liv"], 60, "swim -> Jack + Liv"),
-    ("keyword", r"\b(vet|groom(er|ing)?|dog park)\b", ["bruce"], 60, "dog stuff -> Bruce"),
-    ("name", "", [], 80, "names in title (Jack, Liv, Mom/Sara, Dad/Kyle, Bruce)"),
-]
+from . import config
 
-NAME_ALIASES = {"jack": ["jack"], "liv": ["liv", "livvy", "olivia"], "mom": ["mom", "sara"],
-                "dad": ["dad", "kyle"], "bruce": ["bruce"]}
 
 
 def seed_rules(db):
     if db.one("SELECT COUNT(*) n FROM rules")["n"]:
         return
     db.xm("INSERT INTO rules(kind,pattern,profiles,priority,note) VALUES(?,?,?,?,?)",
-          [(k, p, json.dumps(pr), pri, n) for k, p, pr, pri, n in DEFAULT_RULES])
+          [(k, p, json.dumps(pr), pri, n) for k, p, pr, pri, n in config.rules()])
 
 
 def norm_title(t):
@@ -32,7 +23,7 @@ def norm_title(t):
 def names_in(title, valid):
     t = (title or "").lower()
     out = []
-    for pid, aliases in NAME_ALIASES.items():
+    for pid, aliases in config.aliases().items():
         if pid in valid and any(re.search(r"\b%s('s)?\b" % re.escape(a), t) for a in aliases):
             out.append(pid)
     return out

@@ -49,9 +49,9 @@ fun mix(c: Int, w: Float): Int { // blend toward white
 }
 
 /** Stock profile palette: strong colour + 70%-to-white pastel (matches #EE1B1B -> #FABBBB etc). */
-/** Stock eCalendar colors: Jack is #4DBAFD on the tablet (server keeps its own color for the phone page). */
-private val JACK = Color.parseColor("#4DBAFD")
-fun strong(p: Profile) = when (p.id) { "family" -> C.SHARED; "jack" -> JACK; else -> p.color }
+/** Per-profile tablet colour overrides from config app.color_overrides (server keeps its own colour for the phone page). */
+private val OVERRIDE = BuildCfg.COLOR_IDS.zip(BuildCfg.COLOR_VALUES.map { Color.parseColor(it) }).toMap()
+fun strong(p: Profile) = if (p.id == "family") C.SHARED else OVERRIDE[p.id] ?: p.color
 fun pastel(p: Profile) = if (p.id == "family") Color.parseColor("#C0C8F5") else mix(strong(p), .70f)
 fun taskPastel(p: Profile) = mix(strong(p), .82f)
 
@@ -128,7 +128,7 @@ fun drawAvatar(c: Canvas, p: Profile, bmp: Bitmap?, x: Float, y: Float, s: Float
     if (bmp != null) { c.drawBitmap(bmp, null, r, paint); return }
     paint.style = Paint.Style.FILL; paint.color = strong(p); c.drawOval(r, paint)
     paint.color = Color.WHITE; paint.textSize = s * .5f; paint.typeface = C.MED; paint.textAlign = Paint.Align.CENTER
-    c.drawText(if (p.id == "family") "S" else p.name.take(1).uppercase(), x + s / 2, y + s * .68f, paint); paint.textAlign = Paint.Align.LEFT
+    c.drawText(if (p.id == "family") BuildCfg.FAMILY_LETTER else p.name.take(1).uppercase(), x + s / 2, y + s * .68f, paint); paint.textAlign = Paint.Align.LEFT
 }
 
 /** Tiny vector icons drawn with Paint (no vector-drawable inflation, works with software rendering). */

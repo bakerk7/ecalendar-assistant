@@ -1,0 +1,115 @@
+{
+  "_comment": "Copy to config.local.json (gitignored) and edit. android/build.sh reads the 'app' section; the helper server reads the rest (mount it as /data/config.json or set FAMCAL_CONFIG). Set the time zone with TZ / TZ_NAME in server/.env.",
+  "family": {
+    "name": "Family",
+    "letter": "F",
+    "color": "#6B7280",
+    "emoji": "🏠"
+  },
+  "profiles": [
+    {
+      "id": "alex",
+      "name": "Alex",
+      "color": "#4DBAFD",
+      "emoji": "⚽",
+      "aliases": [
+        "alex"
+      ]
+    },
+    {
+      "id": "sam",
+      "name": "Sam",
+      "color": "#E264FF",
+      "emoji": "🦄",
+      "aliases": [
+        "sam",
+        "samantha"
+      ]
+    },
+    {
+      "id": "mom",
+      "name": "Mom",
+      "color": "#17C096",
+      "emoji": "🌿",
+      "aliases": [
+        "mom"
+      ]
+    },
+    {
+      "id": "dad",
+      "name": "Dad",
+      "color": "#EE1B1B",
+      "emoji": "🔧",
+      "aliases": [
+        "dad"
+      ]
+    }
+  ],
+  "calendars": [
+    {
+      "id": "shared",
+      "name": "Shared Calendar",
+      "color": "#2B45DE",
+      "writable": true,
+      "env": "FAMCAL_SHARED_CAL_ID"
+    },
+    {
+      "id": "soccer",
+      "name": "Team schedule",
+      "color": "#4DBAFD",
+      "writable": false,
+      "env": "FAMCAL_SOCCER_ICS"
+    }
+  ],
+  "rules": [
+    {
+      "kind": "calendar",
+      "pattern": "soccer",
+      "profiles": [
+        "alex"
+      ],
+      "priority": 10,
+      "note": "team feed is Alex's"
+    },
+    {
+      "kind": "keyword",
+      "pattern": "\\b(soccer|practice)\\b",
+      "profiles": [
+        "alex"
+      ],
+      "priority": 50,
+      "note": "soccer -> Alex"
+    },
+    {
+      "kind": "name",
+      "pattern": "",
+      "profiles": [],
+      "priority": 80,
+      "note": "profile names/aliases in the title"
+    }
+  ],
+  "importer": {
+    "feed_calendar_profile": "alex",
+    "default_chore_profile": "dad",
+    "color_overrides": {}
+  },
+  "app": {
+    "server_url": "http://familycal.local:8091",
+    "profile_order": [],
+    "color_overrides": {},
+    "camera": {
+      "package": "",
+      "receiver": "",
+      "label": "Camera"
+    },
+    "signing": {
+      "keystore": "~/.familycal/release.keystore",
+      "password_file": "~/.familycal/release.keystore.pass"
+    }
+  },
+  "weather": {
+    "place": "New York, NY",
+    "lat": 40.7128,
+    "lon": -74.006
+  }
+}

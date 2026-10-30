@@ -1,21 +1,16 @@
 """Business logic: sync with the calendar source, tagging, recurrence expansion,
 chores/stars/rewards, lists."""
-import json, os, logging, re, threading, time, urllib.request
+import json, os, logging, re, threading, time, urllib.parse, urllib.request
 from datetime import date, datetime, timedelta
 from dateutil.rrule import rrulestr
 from zoneinfo import ZoneInfo
 
-from . import rules
+from . import config, rules
 from .db import new_id, now
 from .sources import TZ
 
 log = logging.getLogger("famcal")
-FAMILY = {"id": "family", "name": "Family", "color": "#6B7280", "emoji": "🏠", "kind": "group", "sort": 99}
-
-DEFAULT_PROFILES = [
-    ("jack", "Jack", "#4DBAFD", "⚽", 1), ("liv", "Liv", "#E264FF", "🦄", 2),
-    ("mom", "Mom", "#17C096", "🌿", 3), ("dad", "Dad", "#EE1B1B", "🔧", 4),
-    ("bruce", "Bruce", "#F5A524", "🐶", 5)]
+FAMILY = config.family()
 
 
 def _norm_rrule(r):
@@ -49,11 +44,10 @@ class Service:
     # ------------------------------------------------------------ setup
     def ensure_defaults(self):
         if not self.db.one("SELECT COUNT(*) n FROM profiles")["n"]:
-            self.db.xm("INSERT INTO profiles(id,name,color,emoji,sort) VALUES(?,?,?,?,?)", DEFAULT_PROFILES)
+            self.db.xm("INSERT INTO profiles(id,name,color,emoji,sort) VALUES(?,?,?,?,?)", config.profiles())
         if not self.db.one("SELECT COUNT(*) n FROM calendars")["n"]:
             self.db.xm("INSERT INTO calendars(id,name,google_id,color,writable) VALUES(?,?,?,?,?)", [
-                ("shared", "Shared Calendar", None, "#2B45DE", 1),
-                ("soccer", "Boys U9 Academy 2 White", None, "#4DBAFD", 0)])
+                (c["id"], c["name"], None, c.get("color", "#2B45DE"), int(bool(c.get("writable")))) for c in config.calendars()])
         if not self.db.q("SELECT 1 FROM lists LIMIT 1"):
             for i, (n, e) in enumerate([("Groceries", "🛒"), ("To-Do", "✅"), ("Packing", "🎒")]):
                 self.db.x("INSERT INTO lists(id,name,emoji,sort) VALUES(?,?,?,?)", (new_id(), n, e, i))
@@ -63,7 +57,7 @@ class Service:
     def apply_env_calendars(self):
         """FAMCAL_SHARED_CAL_ID (Google calendarId; a service account needs it explicitly) and
         FAMCAL_SOCCER_ICS (public team feed URL, read via IcsSource) override the DB."""
-        for cid, env in (("shared", "FAMCAL_SHARED_CAL_ID"), ("soccer", "FAMCAL_SOCCER_ICS")):
+        for cid, env in ((c["id"], c["env"]) for c in config.calendars() if c.get("env")):
             v = os.environ.get(env, "").strip()
             if v:
                 self.db.x("UPDATE calendars SET google_id=? WHERE id=?", (v, cid))
@@ -383,14 +377,15 @@ class Service:
         t, data = self._wx
         if data and time.time() - t < 900:
             return data
-        url = ("https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.006"
+        w = config.get().get("weather") or {}
+        url = (f"https://api.open-meteo.com/v1/forecast?latitude={w.get('lat', 40.7128)}&longitude={w.get('lon', -74.006)}"
                "&current=temperature_2m,weather_code,is_day,apparent_temperature,wind_speed_10m"
                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-               "&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FChicago&forecast_days=7")
+               "&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=" + urllib.parse.quote(str(TZ)) + "&forecast_days=7")
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
                 js = json.loads(r.read())
-            data = {"place": "your town", "current": js.get("current"), "daily": js.get("daily"), "fetched": now()}
+            data = {"place": w.get("place", ""), "current": js.get("current"), "daily": js.get("daily"), "fetched": now()}
             self._wx = (time.time(), data)
         except Exception as e:
             log.warning("weather failed: %s", e)

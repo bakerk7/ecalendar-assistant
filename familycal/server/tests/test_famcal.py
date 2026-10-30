@@ -361,3 +361,10 @@ def test_phase3_upcoming_reminders(tmp_path):
     assert ("Dentist", "2026-11-02T09:30") in ats and ("Dentist", "2026-11-02T10:00") in ats
     assert ("Daily", "2026-11-03T07:55") in ats and not any(t == "No rem" for t, _ in ats)
     assert ats == sorted(ats, key=lambda x: x[1])
+
+
+def test_bundled_default_config_matches_example():
+    here = os.path.dirname(__file__)
+    a = json.load(open(os.path.join(here, "..", "famcal", "default_config.json")))
+    b = json.load(open(os.path.join(here, "..", "..", "config.example.json")))
+    assert a == b and b["profiles"] and b["app"]["camera"]["package"] == ""

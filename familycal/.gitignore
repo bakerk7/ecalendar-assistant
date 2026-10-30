@@ -8,3 +8,5 @@ server/data/
 calendar_db*
 google_token.json
 google_sa.json
+config.local.json
+local/
