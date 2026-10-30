@@ -1,12 +1,12 @@
 """Check / finish the Google connection from inside the container (used by install-sa.sh).
 
-python -m famcal.google_setup [--data /data] [--migrate]
+python -m famcal.google_setup [--data /data]
   * signs in with data/google_sa.json (service account) or data/google_token.json (OAuth)
   * finds the shared calendar id (env FAMCAL_SHARED_CAL_ID -> helper DB -> imported eCalendar DB)
   * adds it to the account's calendarList, lists visible calendars and access level
   * extendedProperties survival test on a throw-away event (created, edited, checked, deleted)
   * checks the soccer ICS feed (FAMCAL_SOCCER_ICS)
-  * --migrate: copy the eCalendar-only events into the shared Google calendar (one time)
+  * copying eCalendar-only events into Google is a separate command: python -m famcal.migrate --help
 Prints no secrets (only the service-account email, calendar names/ids, counts)."""
 import argparse, json, os, sqlite3, sys
 from collections import Counter
@@ -61,7 +61,6 @@ def ext_props_test(g, cal):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=os.environ.get("FAMCAL_DATA", "/data"))
-    ap.add_argument("--migrate", action="store_true")
     a = ap.parse_args(argv)
     db = DB(os.path.join(a.data, "famcal.db"))
     cred = google_cred_path(a.data)
@@ -107,10 +106,6 @@ def main(argv=None):
             print("Soccer ICS feed failed:", type(e).__name__)
     else:
         print("Soccer: FAMCAL_SOCCER_ICS not set (soccer calendar stays on its last data)")
-    if a.migrate and rc == 0:
-        from .core import Service, migrate_native
-        svc = Service(db, RoutingSource(g))
-        print("Migrated eCalendar-only events:", migrate_native(svc))
     return rc
 
 

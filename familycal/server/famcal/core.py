@@ -96,7 +96,7 @@ class Service:
                         seen.add(ev["id"])
                         n += self._upsert(cal, ev)
                     if full:
-                        self.db.x(f"UPDATE events SET deleted=1 WHERE cal=? AND deleted=0 AND origin != 'ecal-native' AND id NOT IN ({','.join('?'*len(seen)) or 'NULL'})",
+                        self.db.x(f"UPDATE events SET deleted=1 WHERE cal=? AND deleted=0 AND origin NOT LIKE 'ecal-native%' AND id NOT IN ({','.join('?'*len(seen)) or 'NULL'})",
                                   (cal["id"], *seen))
                 self.last_sync, self.last_sync_error = now(), None
                 return n
@@ -143,10 +143,10 @@ class Service:
                 if mt:
                     self._store_tags(ev["id"], json.loads(mt["profiles"]), "rule", "series", 0)
                     return int(changed)
+            # Auto tags live in the helper DB only. Google is written only for events the app
+            # creates/edits or that someone tags by hand (set_tags), never in bulk from sync.
             prof, src, note, review = rules.decide(self.db, ev, cal["id"], valid)
             self._store_tags(ev["id"], prof, src, note, review)
-            if src == "rule" and cal.get("writable"):
-                self._push_tags(cal, ev["id"], prof)
         return int(changed)
 
     def _store_tags(self, eid, profiles, source, rule, review):
@@ -399,22 +399,4 @@ class Service:
         return data
 
 
-def migrate_native(svc, since_days=60):
-    """Copy eCalendar-only events (never in Google) into the shared Google calendar, keeping tags.
-    Called once when switching from the fixture to Google. Returns count."""
-    cutoff = (date.today() - timedelta(days=since_days)).isoformat()
-    rows = svc.db.q("""SELECT e.*, t.profiles tprof FROM events e LEFT JOIN tags t ON t.event_id=e.id LEFT JOIN event_meta m ON m.event_id=e.id
-                       WHERE e.origin='ecal-native' AND e.deleted=0 AND (e.rrule IS NOT NULL OR COALESCE(e.end,e.start) >= ?)""",
-                    (cutoff,))
-    n = 0
-    for r in rows:
-        body = {"title": r["title"], "description": r["description"], "start": r["start"], "end": r["end"],
-                "all_day": bool(r["all_day"]), "rrule": _norm_rrule(r["rrule"]) if r["rrule"] else None,
-                "profiles": json.loads(r["tprof"] or "[]")}
-        try:
-            svc.create_event(body, "shared", "import")
-            svc.db.x("UPDATE events SET deleted=1, origin='ecal-native-migrated' WHERE id=?", (r["id"],))
-            n += 1
-        except Exception as e:
-            log.warning("migrate %s failed: %s", r["id"], e)
-    return n
+# Copying eCalendar-only events into Google is an explicit, one-off command: python -m famcal.migrate

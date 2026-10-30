@@ -105,11 +105,8 @@ def router(data_dir, deps, svc):
             if body.get(cid):
                 svc.db.x("UPDATE calendars SET google_id=? WHERE id=?", (body[cid], cid))
         svc.source = RoutingSource(GoogleSource(tpath))
-        moved = 0
-        if body.get("migrate_native", True):
-            from .core import migrate_native
-            moved = migrate_native(svc)
+        # Never migrates: copying eCalendar-only events is the explicit `python -m famcal.migrate` command.
         n = svc.sync()
-        return {"ok": n >= 0, "changed": n, "migrated_native_events": moved, "error": svc.last_sync_error}
+        return {"ok": n >= 0, "changed": n, "error": svc.last_sync_error}
 
     return r

@@ -63,7 +63,7 @@ def test_rules(env):
     assert svc.event("b")["profiles"] == ["liv"]
     assert svc.event("c")["profiles"] == ["mom"]
     assert svc.event("s")["profiles"] == ["jack"]
-    assert fx.data["shared"]["a"]["tags"] == ["jack", "liv"]  # rule result mirrored to Google
+    assert "tags" not in fx.data["shared"]["a"]  # rule result stays in the helper DB, never bulk-written to Google
     assert "tags" not in fx.data["soccer"]["s"]  # read-only feed not written
 
 
@@ -406,3 +406,110 @@ def test_reward_redeem_subtracts_stars(env):
     c.post("/api/stars/adjust", headers=H, json={"profile_id": "jack", "delta": 25, "reason": "t"})
     assert c.post(f"/api/rewards/{r['id']}/redeem", headers=H, json={"profile_id": "jack"}).json()["stars"] == 5
     assert c.post(f"/api/rewards/{r['id']}/redeem", headers=H, json={"profile_id": "jack"}).status_code >= 400
+
+
+# ---------------------------------------------------------------- migration safety (2026-10-29)
+class _CountingSource(FixtureSource):
+    def __init__(self, path):
+        super().__init__(path); self.tag_writes = []; self.creates = []
+    def set_tags(self, cal_id, ev_id, profiles):
+        self.tag_writes.append(ev_id); super().set_tags(cal_id, ev_id, profiles)
+    def create(self, cal_id, ev):
+        r = super().create(cal_id, ev); self.creates.append(r["id"]); return r
+
+
+def _svc(tmp_path, events=()):
+    src = _CountingSource(str(tmp_path / "fx.json"))
+    src.seed("shared", list(events))
+    return Service(DB(str(tmp_path / "db.sqlite")), src), src
+
+
+def test_sync_never_writes_auto_tags_to_source(tmp_path):
+    evs = [{"id": f"g{i}", "title": t, "start": "2026-11-0%dT10:00" % (i + 1), "end": "2026-11-0%dT11:00" % (i + 1), "updated": "u"}
+           for i, t in enumerate(["Jack soccer", "Liv dentist", "Dinner"])]
+    svc, src = _svc(tmp_path, evs)
+    svc.sync(); svc.sync()
+    assert src.tag_writes == [] and src.creates == []
+    assert svc.event("g0")["profiles"]            # still auto-tagged, in the helper DB
+    # a manual tag and an app-created event are mirrored to the source
+    svc.set_tags("g2", ["family"] if "family" in svc.valid_ids() else [])
+    assert src.tag_writes == ["g2"]
+    svc.create_event({"title": "New", "start": "2026-11-09T09:00", "profiles": []})
+    assert len(src.creates) == 1
+
+
+def test_nothing_migrates_automatically(tmp_path):
+    import inspect
+    from famcal import oauth, core, app as appmod, google_setup
+    for m in (oauth, core, appmod, google_setup):
+        assert "migrate_native" not in inspect.getsource(m)
+        assert "famcal.migrate import" not in inspect.getsource(m) and "from .migrate" not in inspect.getsource(m)
+    svc, src = _svc(tmp_path)
+    svc.db.x("INSERT INTO events(id,cal,title,start,origin,ecal_id) VALUES('ec1','shared','Native','2026-11-03T10:00','ecal-native','1')")
+    c = TestClient(create_app(svc, api_key="k", start_sync=False))
+    c.post("/api/sync", headers={"X-API-Key": "k"})
+    svc.sync()
+    assert src.creates == [] and svc.event("ec1")["title"] == "Native"
+
+
+def test_cleanup_stale_migrated_copies(tmp_path):
+    from famcal.migrate import cleanup_stale
+    svc, _ = _svc(tmp_path)
+    x = svc.db.x
+    x("INSERT INTO events(id,cal,title,start,origin,deleted) VALUES('gcopy','shared','Boat','2026-08-01T09:00','google',1)")
+    x("INSERT INTO tags(event_id,profiles,source) VALUES('gcopy','[]','manual')")
+    x("INSERT INTO events(id,cal,title,start,origin,deleted) VALUES('glive','shared','Keep','2026-08-01T09:00','google',0)")
+    x("INSERT INTO events(id,cal,title,start,origin,deleted,ecal_id) VALUES('ec9','shared','Boat','2026-08-01T09:00','ecal-native-migrated',0,'9')")
+    assert cleanup_stale(svc.db, ["gcopy", "glive"]) == (1, 1)
+    assert svc.db.one("SELECT 1 FROM events WHERE id='gcopy'") is None and svc.db.one("SELECT 1 FROM tags WHERE event_id='gcopy'") is None
+    assert svc.db.one("SELECT 1 FROM events WHERE id='glive'")
+    assert svc.db.one("SELECT origin FROM events WHERE id='ec9'")["origin"] == "ecal-native"
+    # a full sync keeps the eCalendar-only rows
+    svc.sync()
+    assert svc.db.one("SELECT deleted FROM events WHERE id='ec9'")["deleted"] == 0
+
+
+def _g(id_, title, start, rrule=None):
+    s = {"date": start} if len(start) == 10 else {"dateTime": start + ":00-05:00"}
+    g = {"id": id_, "summary": title, "start": s, "end": s, "updated": "u", "status": "confirmed"}
+    if rrule:
+        g["recurrence"] = ["RRULE:" + rrule]
+    return g
+
+
+def test_migration_plan_dedupes(tmp_path):
+    from famcal.migrate import plan
+    svc, _ = _svc(tmp_path)
+    rows = [("n1", "Boat", "2026-08-01T09:00", None), ("n2", "boat!", "2026-08-02T09:00", None),
+            ("n3", "Dentist", "2026-08-03T10:00", None), ("n4", "Swim", "2026-08-04T17:00", None),
+            ("n5", "Trash day", "2026-08-03T07:00", "FREQ=WEEKLY;BYDAY=MO"), ("n6", "Brand new", "2026-07-01T08:00", None),
+            ("n7", "Anniversary", "2026-08-26", "FREQ=YEARLY;BYMONTH=8;BYMONTHDAY=26")]
+    for i, t, st, rr in rows:
+        svc.db.x("INSERT INTO events(id,cal,title,start,end,all_day,rrule,origin,ecal_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                 (i, "shared", t, st, st, int(len(st) == 10), rr, "ecal-native", i))
+    google = [_g("a", "Boat", "2026-08-01T09:00"), _g("b", "Boat", "2026-08-02T15:00"),
+              _g("c", "Swim", "2026-07-07T17:00", "FREQ=WEEKLY;BYDAY=TU"), _g("d", "Trash Day", "2026-01-05T07:00", "FREQ=WEEKLY;BYDAY=MO")]
+    items = {i["native_id"]: i for i in plan(svc.db, google)}
+    assert items["n1"]["action"] == "skip" and items["n1"]["match"]["id"] == "a"
+    assert items["n2"]["action"] == "skip" and "time differs" in items["n2"]["reason"]
+    assert items["n3"]["action"] == "create"
+    assert items["n4"]["action"] == "skip" and "covered" in items["n4"]["reason"]
+    assert items["n5"]["action"] == "skip" and "series" in items["n5"]["reason"]
+    assert items["n6"]["action"] == "create"            # older rows are included (no date cutoff)
+    assert items["n7"]["action"] == "create" and items["n7"]["rrule"]
+
+
+def test_migration_apply_and_undo(tmp_path):
+    from famcal.migrate import plan, apply, undo
+    svc, src = _svc(tmp_path)
+    svc.db.x("INSERT INTO events(id,cal,title,start,end,origin,ecal_id) VALUES('n1','shared','Dentist','2026-08-03T10:00','2026-08-03T11:00','ecal-native','1')")
+    svc.db.x("INSERT INTO tags(event_id,profiles,source) VALUES('n1','[\"jack\"]','import')") if "jack" in svc.valid_ids() else None
+    rb = str(tmp_path / "rb.json")
+    items = plan(svc.db, [])
+    done = apply(svc, items, rb)
+    assert len(done) == 1 and json.load(open(rb))["created"][0]["google_id"] == src.creates[0]
+    assert svc.db.one("SELECT origin,deleted FROM events WHERE id='n1'") == {"origin": "ecal-native-migrated", "deleted": 1}
+    assert apply(svc, plan(svc.db, []), rb) == done        # re-running creates nothing new
+    assert len(src.creates) == 1
+    assert undo(svc, rb) == 1
+    assert svc.db.one("SELECT origin,deleted FROM events WHERE id='n1'") == {"origin": "ecal-native", "deleted": 0}
