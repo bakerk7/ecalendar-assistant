@@ -70,13 +70,15 @@ class MainActivity : Activity(), Host {
     private lateinit var nightClock: TextView
 
     private val prefs get() = getSharedPreferences("cfg", MODE_PRIVATE)
+    /** Filter ▸ "Show completed tasks" (off by default): completed chores are hidden everywhere unless on. */
+    private var showDone = false
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         C.K = resources.displayMetrics.widthPixels.coerceAtLeast(resources.displayMetrics.heightPixels) / 1920f
         Img.ctx = this
         api = Api(this)
-        mode = prefs.getString("default_view", "week")!!; Fmt.h24 = prefs.getBoolean("h24", false)
+        mode = prefs.getString("default_view", "week")!!; showDone = prefs.getBoolean("show_completed", false); Fmt.h24 = prefs.getBoolean("h24", false)
         takeConfig(intent)
         if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -268,6 +270,7 @@ class MainActivity : Activity(), Host {
         out.sortWith(compareBy({ !it.allDay }, { it.startMin }, { it.title }))
         if (date == choresDate && prefs.getBoolean("chores_on_cal", true)) for (c in chores) {
             if (filter.isNotEmpty() && c.profile !in filter) continue
+            if (c.done && !showDone) continue
             out += Chip(c.title, true, -1, -1, listOf(prof(c.profile)), chore = c)
         }
         out
@@ -411,13 +414,13 @@ class MainActivity : Activity(), Host {
             val mine = chores.filter { it.profile == p.id }
             val col = vbox(this).apply { background = round(mix(strong(p), .88f), 10f) }
             col.addView(colHeader(p, starBadge(p.stars, p), mine.count { it.done }, mine.size))
-            val todo = mine.filter { !it.done }
+            val todo = mine.filter { showDone || !it.done }
             if (todo.isEmpty()) {
                 col.addView(emptyState("emo${i % 3}", if (mine.isEmpty()) "Nothing to do today" else "${mine.size}/${mine.size} tasks completed"), lp(MATCH, 0, 1f))
             } else {
                 val list = vbox(this).apply { setPadding(px(10), px(6), px(10), px(10)) }
                 list.addView(text("Chore", 14f, C.INK, C.MED).apply { setPadding(px(2), px(4), 0, px(8)) })
-                for (c in mine.sortedBy { it.done }) list.addView(choreTile(c, p), lp(MATCH, WRAP).apply { bottomMargin = px(10) })
+                for (c in todo.sortedBy { it.done }) list.addView(choreTile(c, p), lp(MATCH, WRAP).apply { bottomMargin = px(10) })
                 col.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }, lp(MATCH, 0, 1f))
             }
             cols.addView(col, lp(0, MATCH, 1f).apply { if (i > 0) leftMargin = px(14) })
@@ -533,6 +536,11 @@ class MainActivity : Activity(), Host {
             b.addView(r)
         }
         b.addView(menuRow("Show everyone", false) { filter.clear(); chipCache.clear(); render() })
+        b.addView(View(this).apply { setBackgroundColor(Color.parseColor("#E1E4EA")) }, lp(MATCH, px(1)).apply { topMargin = px(6); bottomMargin = px(6) })
+        val sr = hbox(this).apply { setPadding(px(12), px(8), px(12), px(8)) }
+        sr.addView(text("Show completed tasks", 16f).apply { setPadding(px(4), 0, 0, 0) }, lp(0, WRAP, 1f))
+        sr.addView(Toggle(this, showDone, true) { showDone = it; prefs.edit().putBoolean("show_completed", it).apply(); chipCache.clear(); render() })
+        b.addView(sr)
     }
 
     /** Stock FAB menu: white "Event" / "Task" bubbles above a blue X (stroke instead of shadow). */
