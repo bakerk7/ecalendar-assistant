@@ -594,8 +594,11 @@ class MainActivity : Activity(), Host {
         g.removeAllViews()
         val today = D.today()
         val c = Calendar.getInstance(); val m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-        val page2 = hbox(this, Gravity.TOP).apply { setPadding(px(60), px(50), px(60), px(40)) }
-        g.addView(page2, FrameLayout.LayoutParams(MATCH, MATCH))
+        val outer = vbox(this).apply { setPadding(px(60), px(50), px(60), px(40)) }
+        g.addView(outer, FrameLayout.LayoutParams(MATCH, MATCH))
+        val page2 = hbox(this, Gravity.TOP)
+        outer.addView(page2, lp(MATCH, 0, 1f))
+        weather?.takeIf { prefs.getBoolean("show_weather", true) && it.hours.isNotEmpty() }?.let { outer.addView(hourStrip(it.hours.take(12)), lp(MATCH, WRAP).apply { topMargin = px(14); rightMargin = px(180) }) }
         // left: greeting, date, weather, today's events
         val left = vbox(this)
         page2.addView(left, lp(0, MATCH, 1f))
@@ -646,6 +649,34 @@ class MainActivity : Activity(), Host {
         }
         right.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
         g.addView(text("Tap anywhere to open the calendar", 15f, C.MUT2).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = px(14) })
+    }
+
+    /** Next-12-hours strip: hour, icon, temp, precip chance; wet hours tinted (blue rain, icy blue snow, violet storms). */
+    private fun hourStrip(hs: List<Hour>): View {
+        val box = vbox(this)
+        val head = hbox(this)
+        head.addView(text("Next ${hs.size} hours", 18f, C.INK, C.BOLD))
+        val sum = Parse.hourSummary(hs)
+        val wet = hs.any { it.kind.isNotEmpty() || it.pop >= 50 }
+        head.addView(text("   " + sum, 16f, if (wet) C.BLUE else C.MUT, if (wet) C.MED else C.REG), lp(0, WRAP, 1f))
+        box.addView(head, lp(MATCH, WRAP).apply { bottomMargin = px(8) })
+        val row = hbox(this)
+        for ((i, h) in hs.withIndex()) {
+            val bg = when {
+                h.kind == "snow" -> Color.parseColor("#E8F3FF"); h.kind == "sleet" -> Color.parseColor("#DCEBF7")
+                h.kind == "storm" -> Color.parseColor("#E6E0FA"); h.kind == "rain" || h.pop >= 50 -> Color.parseColor("#D6E4FF")
+                else -> C.FIELD
+            }
+            val stroke = when (h.kind) { "snow" -> Color.parseColor("#B9D7F5"); "storm" -> Color.parseColor("#B7A6F0"); "rain", "sleet" -> Color.parseColor("#9DB8FF"); else -> 0 }
+            val cell = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; background = round(bg, 10f, stroke, if (stroke != 0) 1.5f else 0f); setPadding(0, px(6), 0, px(6)) }
+            cell.addView(text(if (i == 0) "Now" else Parse.hourLabel(h.hour), 13f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER })
+            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 20f).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2)) })
+            cell.addView(text("${h.temp}°", 16f, C.INK, C.MED).apply { gravity = Gravity.CENTER })
+            cell.addView(text(if (h.pop >= 10) "${h.pop}%" else " ", 12f, if (h.pop >= 50) C.BLUE else C.MUT2, if (h.pop >= 50) C.BOLD else C.REG).apply { gravity = Gravity.CENTER })
+            row.addView(cell, lp(0, WRAP, 1f).apply { if (i > 0) leftMargin = px(6) })
+        }
+        box.addView(row, lp(MATCH, WRAP))
+        return box
     }
 
     // ================================================================= overlays (in-tree, no Dialog windows)

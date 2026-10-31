@@ -446,6 +446,18 @@ class Service:
         return {"stars": self.balance(pid)}
 
     # ------------------------------------------------------------ weather
+    @staticmethod
+    def _next_hours(h, cur, n=24):
+        """Slice Open-Meteo hourly arrays to the next n hours starting at the current hour."""
+        t = h.get("time") or []
+        start = 0
+        key = (cur or "")[:13]
+        for i, x in enumerate(t):
+            if x[:13] >= key:
+                start = i
+                break
+        return {k: (v[start:start + n] if isinstance(v, list) else v) for k, v in h.items()}
+
     def weather(self):
         t, data = self._wx
         if data and time.time() - t < 900:
@@ -453,12 +465,15 @@ class Service:
         w = config.get().get("weather") or {}
         url = (f"https://api.open-meteo.com/v1/forecast?latitude={w.get('lat', 40.7128)}&longitude={w.get('lon', -74.006)}"
                "&current=temperature_2m,weather_code,is_day,apparent_temperature,wind_speed_10m"
+               "&hourly=temperature_2m,precipitation_probability,weather_code,is_day,snowfall"
                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
                "&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=" + urllib.parse.quote(str(TZ)) + "&forecast_days=7")
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
                 js = json.loads(r.read())
-            data = {"place": w.get("place", ""), "current": js.get("current"), "daily": js.get("daily"), "fetched": now()}
+            data = {"place": w.get("place", ""), "current": js.get("current"), "daily": js.get("daily"),
+                    "hourly": self._next_hours(js.get("hourly") or {}, (js.get("current") or {}).get("time", "")),
+                    "fetched": now()}
             self._wx = (time.time(), data)
         except Exception as e:
             log.warning("weather failed: %s", e)
