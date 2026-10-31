@@ -5,7 +5,7 @@ Polls HA (read-only GET /api/states/<entity>) every 1 s. When the event entity's
 state (ISO timestamp of last ring) changes, sends an explicit broadcast to com.bakerk7.doorbelloverlay/.RingReceiver (full-screen
 overlay window over the calendar, no Activity);
 falls back to launching the kiosk Activity if that fails. Also pops up on binary_sensor.doorbell_motion off->on (no cooldown; skipped only while an overlay is showing).
-Disable all: touch ~/.doorbell-popup/DISABLED; motion only: touch ~/.doorbell-popup/MOTION_DISABLED
+Disable all: Settings switch in the tablet app (settings.json doorbell_popup_enabled), or touch ~/.doorbell-popup/DISABLED; motion only: touch ~/.doorbell-popup/MOTION_DISABLED
 """
 import json, os, threading, subprocess, time, urllib.request, logging
 
@@ -24,6 +24,16 @@ COOLDOWN = 12                      # ring de-dupe
 MOTION_ENTITY = os.environ.get("MOTION_ENTITY", "binary_sensor.doorbell_motion")  # follows Kyle's Protect motion zones/settings
 MOTION_COOLDOWN = 0                # Kyle: no cooldown; only skip if an overlay is already showing
 MOTION_DISABLED = os.path.join(STATE_DIR, "MOTION_DISABLED")
+# On/off switch shared with the tablet app (Settings > "Doorbell pop-up on ring"), written by the familycal helper.
+FAMCAL_SETTINGS = os.environ.get("FAMCAL_SETTINGS", os.path.join(HOME, "docker-stacks/familycal/data/settings.json"))
+
+def popup_enabled():
+    """True unless the familycal settings file says doorbell_popup_enabled=false. Unreadable/missing = ON."""
+    try:
+        with open(FAMCAL_SETTINGS) as f:
+            return json.load(f).get("doorbell_popup_enabled", True) is not False
+    except Exception:
+        return True
 
 def token():
     for line in open(os.path.join(HOME, "docker-stacks/ecalendar-assistant/.env")):
@@ -96,6 +106,8 @@ def main():
                 last = s
                 if os.path.exists(os.path.join(STATE_DIR, "DISABLED")):
                     logging.info("ring %s ignored (DISABLED)", s)
+                elif not popup_enabled():
+                    logging.info("ring %s ignored (pop-up switched off in app settings)", s)
                 elif time.time() - last_fire < COOLDOWN:
                     logging.info("ring %s ignored (cooldown)", s)
                 elif overlay_showing():
@@ -111,6 +123,8 @@ def main():
             if m_last == "off" and m == "on":
                 if os.path.exists(os.path.join(STATE_DIR, "DISABLED")) or os.path.exists(MOTION_DISABLED):
                     logging.info("MOTION ignored (disabled)")
+                elif not popup_enabled():
+                    logging.info("MOTION ignored (pop-up switched off in app settings)")
                 elif time.time() - m_fire < MOTION_COOLDOWN:
                     logging.info("MOTION ignored (cooldown, %.0fs since last motion pop-up)", time.time() - m_fire)
                 elif overlay_showing():

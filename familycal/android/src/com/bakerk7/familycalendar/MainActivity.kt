@@ -1375,6 +1375,18 @@ class MainActivity : Activity(), Host {
                 row("Show chores on calendar", sw("chores_on_cal", true))
                 row("Keep screen on", sw("keep_on", true) { if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) })
+                head("Doorbell")
+                // stored on the helper (data/settings.json) so the host-side ring listener sees it too
+                val dbBox = hbox(this).apply { addView(text("…", 14f, C.MUT)) }
+                row("Doorbell pop-up on ring", dbBox)
+                api.get("/api/settings/doorbell_popup", { js ->
+                    val on = JSONObject(js).optBoolean("doorbell_popup_enabled", true); dbBox.removeAllViews()
+                    val st = text(if (on) "On" else "Off", 14f, C.MUT)
+                    dbBox.addView(Toggle(this, on, true) { v -> st.text = if (v) "On" else "Off"
+                        api.post("/api/settings/doorbell_popup", JSONObject().put("doorbell_popup_enabled", v), { toast(if (v) "Doorbell pop-up on" else "Doorbell pop-up off") },
+                            { toast("Couldn't save: $it"); settings(sec) }) })
+                    dbBox.addView(st.margins(px(10)), lp(px(40), WRAP)) },
+                    { dbBox.removeAllViews(); dbBox.addView(text("Can't reach server", 14f, C.MUT)) })
             }
             "Calendar" -> {
                 head("Calendar")

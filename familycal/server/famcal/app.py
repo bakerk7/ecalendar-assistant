@@ -331,6 +331,32 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
             doors.set_fake(body["name"], body.get("minutes"))
         return doors.status()
 
+    # ------------------------------------------------------------ device settings shared with host-side helpers
+    settings_path = os.path.join(data_dir, "settings.json")
+
+    def _settings() -> dict:
+        try:
+            with open(settings_path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    @app.get("/api/settings/doorbell_popup", dependencies=A)
+    def doorbell_popup_get():
+        """Doorbell ring/motion camera pop-up on the tablet. Missing/unreadable = enabled (default ON)."""
+        return {"doorbell_popup_enabled": bool(_settings().get("doorbell_popup_enabled", True))}
+
+    @app.post("/api/settings/doorbell_popup", dependencies=A)
+    def doorbell_popup_set(body: dict = Body(...)):
+        if not isinstance(body.get("doorbell_popup_enabled"), bool):
+            raise HTTPException(400, "doorbell_popup_enabled must be true/false")
+        s = _settings(); s["doorbell_popup_enabled"] = body["doorbell_popup_enabled"]
+        tmp = settings_path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(s, f)
+        os.replace(tmp, settings_path)
+        return {"doorbell_popup_enabled": s["doorbell_popup_enabled"]}
+
     @app.get("/api/weather", dependencies=A)
     def weather():
         return svc.weather()
