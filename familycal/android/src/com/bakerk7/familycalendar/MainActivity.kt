@@ -184,7 +184,7 @@ class MainActivity : Activity(), Host {
         }
         top.addView(tagPill.margins(px(24)))
         topHours = FitRow(this)
-        top.addView(topHours, lp(0, px(84), 1f).apply { setMargins(px(22), 0, px(18), 0) })
+        top.addView(topHours, lp(0, px(84), 1f).apply { setMargins(px(16), 0, px(16), 0) })
         pills = hbox(this); top.addView(pills)
         top.addView(IconView(this, Ico(Ico.WIFI, C.INK, 30f, 2.2f), px(30)), lp(px(30), px(30)).apply { leftMargin = px(20) })
 
@@ -672,26 +672,27 @@ class MainActivity : Activity(), Host {
             val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2))
                 if (bg != 0) background = round(bg, 8f, stroke, if (stroke != 0) 1f else 0f) }
             val lbl = if (i == 0) "Now" else when { h.hour == 0 -> "12A"; h.hour < 12 -> "${h.hour}A"; h.hour == 12 -> "12P"; else -> "${h.hour - 12}P" }
-            cell.addView(text(lbl, 11f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 15f).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            cell.addView(text("${h.temp}°", 13f, C.INK, C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(lbl, 12f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 17f).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text("${h.temp}°", 14f, C.INK, C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false })
             if (h.pop >= 10) cell.addView(text("${h.pop}%", 10f, if (h.pop >= 50) C.BLUE else C.MUT2, if (h.pop >= 50) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            topHours.addView(cell, lp(px(46), WRAP).apply { if (i > 0) leftMargin = px(4); gravity = Gravity.CENTER_VERTICAL })
+            topHours.addView(cell, lp(0, WRAP, 1f).apply { if (i > 0) leftMargin = px(4); gravity = Gravity.CENTER_VERTICAL })
         }
     }
 
     /** Horizontal row that hides trailing children which would not fit its width (never overlaps neighbours). */
     class FitRow(ctx: android.content.Context) : LinearLayout(ctx) {
         init { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = true }
+        /** Children share width equally (weight 1); trailing ones drop when each would be narrower than minCell. */
+        var minCell = (44 * ctx.resources.displayMetrics.density).toInt()
         override fun onMeasure(ws: Int, hs: Int) {
-            for (i in 0 until childCount) getChildAt(i).visibility = View.VISIBLE
-            super.onMeasure(ws, hs)
             val avail = MeasureSpec.getSize(ws) - paddingLeft - paddingRight
-            var used = 0; var hid = false
-            for (i in 0 until childCount) { val c = getChildAt(i); val m = c.layoutParams as MarginLayoutParams
-                used += c.measuredWidth + m.leftMargin + m.rightMargin
-                if (used > avail) { c.visibility = View.GONE; hid = true } }
-            if (hid) super.onMeasure(ws, hs)
+            var fit = childCount
+            while (fit > 0) { var gaps = 0
+                for (i in 1 until fit) gaps += (getChildAt(i).layoutParams as MarginLayoutParams).leftMargin
+                if (fit * minCell + gaps <= avail) break; fit-- }
+            for (i in 0 until childCount) getChildAt(i).visibility = if (i < fit) View.VISIBLE else View.GONE
+            super.onMeasure(ws, hs)
         }
     }
 
