@@ -218,6 +218,7 @@ class MainActivity : Activity(), Host {
             override fun onChildViewAdded(parent: View?, child: View?) {}
             override fun onChildViewRemoved(parent: View?, child: View?) { if (ovl.childCount == 0) doorBox.visibility = View.VISIBLE } })
         root.addView(ovl, FrameLayout.LayoutParams(MATCH, MATCH))
+        setupKbControls()
 
         night = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK); visibility = View.GONE; isClickable = true
@@ -729,7 +730,31 @@ class MainActivity : Activity(), Host {
     }
 
     // ================================================================= overlays (in-tree, no Dialog windows)
-    private fun closeOverlay() = ovl.removeAllViews()
+    private fun closeOverlay() { currentFocus?.let { hideKb(it); it.clearFocus() }; hideKb(root); ovl.removeAllViews() }
+
+    // ---- on-screen keyboard control (kiosk/HOME: no nav bar, so the IME needs its own way out)
+    private lateinit var kbBtn: TextView
+    private fun dropKb() { val f = currentFocus; hideKb(f ?: root); f?.clearFocus(); root.requestFocus(); kbBtn.visibility = View.GONE }
+    private fun setupKbControls() {
+        root.isFocusableInTouchMode = true; root.descendantFocusability = android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS
+        kbBtn = TextView(this).apply {
+            text = "\u2328  Hide keyboard"; setTextColor(Color.WHITE); setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fpx(16f))
+            background = round(0xEE333333.toInt(), 20f); setPadding(px(18), px(10), px(18), px(10)); visibility = View.GONE
+            elevation = px(12).toFloat(); contentDescription = "Hide keyboard"; setOnClickListener { dropKb() } }
+        root.addView(kbBtn, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).apply { setMargins(0, px(12), px(16), 0) })
+        root.viewTreeObserver.addOnGlobalFocusChangeListener { _, nf ->
+            if (nf is EditText) {
+                val multi = nf.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0
+                if (!multi && nf.imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION == 0) {
+                    nf.imeOptions = nf.imeOptions or android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                    (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).restartInput(nf) }
+                if (nf.tag != "kbl") { nf.tag = nf.tag ?: "kbl"
+                    nf.setOnEditorActionListener { _, a, ev -> if (a == android.view.inputmethod.EditorInfo.IME_ACTION_DONE ||
+                        (ev?.keyCode == android.view.KeyEvent.KEYCODE_ENTER && !multi)) { dropKb(); true } else false } }
+                kbBtn.visibility = View.VISIBLE; kbBtn.bringToFront()
+            } else kbBtn.visibility = View.GONE
+        }
+    }
     private fun scrim(dim: Boolean = true): FrameLayout = FrameLayout(this).apply {
         if (dim) setBackgroundColor(0x66000000); isClickable = true; setOnClickListener { closeOverlay() }
         ovl.removeAllViews(); ovl.addView(this, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -886,6 +911,11 @@ class MainActivity : Activity(), Host {
         lastTouch = System.currentTimeMillis()
         if (glance != null && night.visibility != View.VISIBLE) { if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) closeGlance(); return true }   // any tap dismisses the glance
         if (briState in 0.03f..0.99f) { forcedEvening = false; updateClock() }     // evening dim: first touch brightens
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) (currentFocus as? EditText)?.let { f ->
+            // tap outside the focused field (and not on another field / the hide button): drop the keyboard + focus
+            fun hit(v: View): Boolean { val r = android.graphics.Rect(); return v.isShown && v.getGlobalVisibleRect(r) && r.contains(ev.rawX.toInt(), ev.rawY.toInt()) }
+            fun anyEdit(v: View): Boolean = if (v is EditText) hit(v) else v is android.view.ViewGroup && v.isShown && (0 until v.childCount).any { anyEdit(v.getChildAt(it)) }
+            if (!hit(f) && !hit(kbBtn) && !anyEdit(ovl)) dropKb() }
         return super.dispatchTouchEvent(ev)
     }
     private var lockedByUs = false
