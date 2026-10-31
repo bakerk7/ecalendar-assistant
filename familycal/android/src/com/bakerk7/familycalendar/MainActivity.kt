@@ -69,6 +69,7 @@ class MainActivity : Activity(), Host {
     private lateinit var timeDiv: View
     private lateinit var tempTv: TextView
     private lateinit var wxIcon: View
+    private lateinit var topHours: FitRow
     private lateinit var tagPill: TextView
     private lateinit var pills: LinearLayout
     private lateinit var profBar: LinearLayout
@@ -182,7 +183,8 @@ class MainActivity : Activity(), Host {
             setOnClickListener { showToTag() }
         }
         top.addView(tagPill.margins(px(24)))
-        top.addView(View(this), lp(0, 1, 1f))
+        topHours = FitRow(this)
+        top.addView(topHours, lp(0, px(84), 1f).apply { setMargins(px(22), 0, px(18), 0) })
         pills = hbox(this); top.addView(pills)
         top.addView(IconView(this, Ico(Ico.WIFI, C.INK, 30f, 2.2f), px(30)), lp(px(30), px(30)).apply { leftMargin = px(20) })
 
@@ -331,6 +333,7 @@ class MainActivity : Activity(), Host {
         tagPill.text = "$toTag to tag"
         tempTv.text = weather?.let { "${it.temp}°F" } ?: "--°F"
         val wxOn = prefs.getBoolean("show_weather", true); tempTv.visibility = if (wxOn) View.VISIBLE else View.GONE; wxIcon.visibility = tempTv.visibility
+        renderTopHours(wxOn)
         renderPills()
         glance?.let { fillGlance(it) }
         val onCal = page == "cal"
@@ -649,6 +652,47 @@ class MainActivity : Activity(), Host {
         }
         right.addView(ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(grid) }, lp(MATCH, 0, 1f))
         g.addView(text("Tap anywhere to open the calendar", 15f, C.MUT2).apply { gravity = Gravity.CENTER }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = px(14) })
+    }
+
+    /** Compact top-bar strip (weekly view): current hour + next 8; trailing cells drop if they don't fit. */
+    private fun renderTopHours(wxOn: Boolean) {
+        topHours.removeAllViews()
+        val w = weather
+        if (!wxOn || w == null || page != "cal" || mode != "week") return
+        val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH", java.util.Locale.US).format(java.util.Date())
+        val hs = w.hours.filter { it.time.length >= 13 && it.time.substring(0, 13) >= now }.take(9)
+        if (hs.isEmpty()) return
+        for ((i, h) in hs.withIndex()) {
+            val bg = when {
+                h.kind == "snow" -> Color.parseColor("#E8F3FF"); h.kind == "sleet" -> Color.parseColor("#DCEBF7")
+                h.kind == "storm" -> Color.parseColor("#E6E0FA"); h.kind == "rain" || h.pop >= 50 -> Color.parseColor("#D6E4FF")
+                else -> 0
+            }
+            val stroke = when (h.kind) { "snow" -> Color.parseColor("#B9D7F5"); "storm" -> Color.parseColor("#B7A6F0"); "rain", "sleet" -> Color.parseColor("#9DB8FF"); else -> 0 }
+            val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2))
+                if (bg != 0) background = round(bg, 8f, stroke, if (stroke != 0) 1f else 0f) }
+            val lbl = if (i == 0) "Now" else when { h.hour == 0 -> "12A"; h.hour < 12 -> "${h.hour}A"; h.hour == 12 -> "12P"; else -> "${h.hour - 12}P" }
+            cell.addView(text(lbl, 11f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 15f).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text("${h.temp}°", 13f, C.INK, C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            if (h.pop >= 10) cell.addView(text("${h.pop}%", 10f, if (h.pop >= 50) C.BLUE else C.MUT2, if (h.pop >= 50) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            topHours.addView(cell, lp(px(46), WRAP).apply { if (i > 0) leftMargin = px(4); gravity = Gravity.CENTER_VERTICAL })
+        }
+    }
+
+    /** Horizontal row that hides trailing children which would not fit its width (never overlaps neighbours). */
+    class FitRow(ctx: android.content.Context) : LinearLayout(ctx) {
+        init { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = true }
+        override fun onMeasure(ws: Int, hs: Int) {
+            for (i in 0 until childCount) getChildAt(i).visibility = View.VISIBLE
+            super.onMeasure(ws, hs)
+            val avail = MeasureSpec.getSize(ws) - paddingLeft - paddingRight
+            var used = 0; var hid = false
+            for (i in 0 until childCount) { val c = getChildAt(i); val m = c.layoutParams as MarginLayoutParams
+                used += c.measuredWidth + m.leftMargin + m.rightMargin
+                if (used > avail) { c.visibility = View.GONE; hid = true } }
+            if (hid) super.onMeasure(ws, hs)
+        }
     }
 
     /** Next-12-hours strip: hour, icon, temp, precip chance; wet hours tinted (blue rain, icy blue snow, violet storms). */
