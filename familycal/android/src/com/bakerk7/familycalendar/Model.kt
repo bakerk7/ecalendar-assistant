@@ -26,7 +26,7 @@ data class Item(val id: String, val text: String, var done: Boolean)
 data class FList(val id: String, val name: String, val emoji: String, val items: MutableList<Item>)
 data class Day(val date: String, val code: Int, val hi: Int, val lo: Int, val pop: Int)
 /** One forecast hour; [hour] is 0..23 local, [kind] is "", "rain", "snow", "sleet" or "storm". */
-data class Hour(val time: String, val hour: Int, val temp: Int, val pop: Int, val code: Int, val isDay: Boolean, val kind: String)
+data class Hour(val time: String, val hour: Int, val temp: Int, val pop: Int, val code: Int, val isDay: Boolean, val kind: String, val snow: Double = 0.0)
 data class Weather(val temp: Int, val code: Int, val isDay: Boolean, val days: List<Day>, val hours: List<Hour> = emptyList())
 
 object Parse {
@@ -75,9 +75,11 @@ object Parse {
             if (t != null) for (i in 0 until t.length()) {
                 val ts = t.getString(i); val code = h.optJSONArray("weather_code")?.optInt(i) ?: 0
                 val pop = h.optJSONArray("precipitation_probability")?.optInt(i) ?: 0
+                val sn = h.optJSONArray("snowfall")?.optDouble(i, 0.0)?.takeIf { !it.isNaN() } ?: 0.0
+                val kd = wxKind(code).let { if (sn > 0 && it != "storm") "snow" else it }
                 hours += Hour(ts, ts.substring(11, 13).toIntOrNull() ?: 0,
                     Math.round(h.optJSONArray("temperature_2m")?.optDouble(i) ?: 0.0).toInt(), pop, code,
-                    (h.optJSONArray("is_day")?.optInt(i, 1) ?: 1) == 1, wxKind(code))
+                    (h.optJSONArray("is_day")?.optInt(i, 1) ?: 1) == 1, kd, sn)
             }
         }
         return Weather(Math.round(c.optDouble("temperature_2m")).toInt(), c.optInt("weather_code"), c.optInt("is_day", 1) == 1, days, hours)
@@ -105,6 +107,11 @@ object Parse {
         val span = if (a == 0) "now until ${hourLabel(endH)}" else "$from–${hourLabel(endH)}"
         val more = if (wet.size > run.size) ", more later" else ""
         return (if (adj == "slight chance") "Slight chance of ${noun.lowercase()} $span" else "$noun $adj $span") + " ($p%)$more"
+    }
+    /** Inline precip glyph for an hour, or null when < 10% and no snowfall. */
+    fun precipGlyph(h: Hour): String? {
+        if (h.pop < 10 && h.snow <= 0) return null
+        return when (h.kind) { "snow" -> "❄"; "sleet" -> "❄💧"; "storm" -> "⚡"; else -> "💧" }
     }
     fun wxEmoji(code: Int, day: Boolean = true) = when (code) {
         0 -> if (day) "☀️" else "🌙"; 1, 2 -> if (day) "⛅" else "☁️"; 3 -> "☁️"; 45, 48 -> "🌫️"

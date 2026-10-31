@@ -663,19 +663,12 @@ class MainActivity : Activity(), Host {
         val hs = w.hours.filter { it.time.length >= 13 && it.time.substring(0, 13) >= now }.take(9)
         if (hs.isEmpty()) return
         for ((i, h) in hs.withIndex()) {
-            val bg = when {
-                h.kind == "snow" -> Color.parseColor("#E8F3FF"); h.kind == "sleet" -> Color.parseColor("#DCEBF7")
-                h.kind == "storm" -> Color.parseColor("#E6E0FA"); h.kind == "rain" || h.pop >= 50 -> Color.parseColor("#D6E4FF")
-                else -> 0
-            }
-            val stroke = when (h.kind) { "snow" -> Color.parseColor("#B9D7F5"); "storm" -> Color.parseColor("#B7A6F0"); "rain", "sleet" -> Color.parseColor("#9DB8FF"); else -> 0 }
-            val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2))
-                if (bg != 0) background = round(bg, 8f, stroke, if (stroke != 0) 1f else 0f) }
+            val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2)); background = hourBg(h, i == 0, 0, 8f) }
             val lbl = if (i == 0) "Now" else when { h.hour == 0 -> "12A"; h.hour < 12 -> "${h.hour}A"; h.hour == 12 -> "12P"; else -> "${h.hour - 12}P" }
-            cell.addView(text(lbl, 12f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(lbl, 12f, if (i == 0) NOW_BLUE else C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
             cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 17f).apply { gravity = Gravity.CENTER; includeFontPadding = false })
             cell.addView(text("${h.temp}°", 14f, C.INK, C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            if (h.pop >= 10) cell.addView(text("${h.pop}%", 10f, if (h.pop >= 50) C.BLUE else C.MUT2, if (h.pop >= 50) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            precipLine(h, 10f)?.let { cell.addView(it) }
             topHours.addView(cell, lp(0, WRAP, 1f).apply { if (i > 0) leftMargin = px(4); gravity = Gravity.CENTER_VERTICAL })
         }
     }
@@ -696,7 +689,24 @@ class MainActivity : Activity(), Host {
         }
     }
 
-    /** Next-12-hours strip: hour, icon, temp, precip chance; wet hours tinted (blue rain, icy blue snow, violet storms). */
+    private val NOW_BLUE = Color.parseColor("#406DFF")
+    private val RAIN_BLUE = Color.parseColor("#3B82F6")
+    private val SNOW_BLUE = Color.parseColor("#2A9FD6")
+    private val SNOW_TINT = Color.parseColor("#E3F4FC")
+    /** Cell background: icy tint only for snow/sleet hours; blue outline on the Now cell. */
+    private fun hourBg(h: Hour, isNow: Boolean, base: Int, r: Float): android.graphics.drawable.Drawable? {
+        val fill = if (h.kind == "snow" || h.kind == "sleet") SNOW_TINT else base
+        if (!isNow && fill == 0) return null
+        return round(fill, r, if (isNow) NOW_BLUE else 0, if (isNow) 2f else 0f)
+    }
+    /** Inline "💧 40%" / "❄ 60%" / "⚡ 30%" under the temp; null when no meaningful precip. */
+    private fun precipLine(h: Hour, sp: Float): TextView? {
+        val g = Parse.precipGlyph(h) ?: return null
+        val col = if (h.kind == "snow" || h.kind == "sleet") SNOW_BLUE else if (h.kind == "storm") Color.parseColor("#7C5CE0") else RAIN_BLUE
+        return text("$g${h.pop}%", sp, col, if (h.pop >= 50) C.BOLD else C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false; maxLines = 1 }
+    }
+
+    /** Next-12-hours strip: hour, icon, temp, inline precip glyph + chance; snow hours get an icy tint, Now is outlined. */
     private fun hourStrip(hs: List<Hour>): View {
         val box = vbox(this)
         val head = hbox(this)
@@ -707,17 +717,11 @@ class MainActivity : Activity(), Host {
         box.addView(head, lp(MATCH, WRAP).apply { bottomMargin = px(8) })
         val row = hbox(this)
         for ((i, h) in hs.withIndex()) {
-            val bg = when {
-                h.kind == "snow" -> Color.parseColor("#E8F3FF"); h.kind == "sleet" -> Color.parseColor("#DCEBF7")
-                h.kind == "storm" -> Color.parseColor("#E6E0FA"); h.kind == "rain" || h.pop >= 50 -> Color.parseColor("#D6E4FF")
-                else -> C.FIELD
-            }
-            val stroke = when (h.kind) { "snow" -> Color.parseColor("#B9D7F5"); "storm" -> Color.parseColor("#B7A6F0"); "rain", "sleet" -> Color.parseColor("#9DB8FF"); else -> 0 }
-            val cell = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; background = round(bg, 10f, stroke, if (stroke != 0) 1.5f else 0f); setPadding(0, px(6), 0, px(6)) }
-            cell.addView(text(if (i == 0) "Now" else Parse.hourLabel(h.hour), 13f, C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER })
+            val cell = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; background = hourBg(h, i == 0, C.FIELD, 10f); setPadding(0, px(6), 0, px(6)) }
+            cell.addView(text(if (i == 0) "Now" else Parse.hourLabel(h.hour), 13f, if (i == 0) NOW_BLUE else C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER })
             cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 20f).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2)) })
             cell.addView(text("${h.temp}°", 16f, C.INK, C.MED).apply { gravity = Gravity.CENTER })
-            cell.addView(text(if (h.pop >= 10) "${h.pop}%" else " ", 12f, if (h.pop >= 50) C.BLUE else C.MUT2, if (h.pop >= 50) C.BOLD else C.REG).apply { gravity = Gravity.CENTER })
+            cell.addView(precipLine(h, 12f) ?: text(" ", 12f, C.MUT2).apply { gravity = Gravity.CENTER })
             row.addView(cell, lp(0, WRAP, 1f).apply { if (i > 0) leftMargin = px(6) })
         }
         box.addView(row, lp(MATCH, WRAP))
