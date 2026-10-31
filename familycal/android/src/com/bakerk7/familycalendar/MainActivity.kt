@@ -215,8 +215,8 @@ class MainActivity : Activity(), Host {
         ovl = FrameLayout(this)
         // the + menu hides the door pills (they sit right where its bubbles go); bring them back once the overlay empties
         ovl.setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
-            override fun onChildViewAdded(parent: View?, child: View?) {}
-            override fun onChildViewRemoved(parent: View?, child: View?) { if (ovl.childCount == 0) doorBox.visibility = View.VISIBLE } })
+            override fun onChildViewAdded(parent: View?, child: View?) { syncDoorVis() }
+            override fun onChildViewRemoved(parent: View?, child: View?) { ui.post { syncDoorVis() } } })
         root.addView(ovl, FrameLayout.LayoutParams(MATCH, MATCH))
         setupKbControls()
 
@@ -546,8 +546,11 @@ class MainActivity : Activity(), Host {
         api.get("/api/doors", { txt -> if (txt.hashCode() != doorsJson) { doorsJson = txt.hashCode()
             try { doors = parseDoors(JSONObject(txt).optJSONArray("doors")); renderDoors() } catch (_: Exception) {} } })
         ui.postDelayed(this, 3_000) } }
+    /** Door pills sit above ovl in z-order: hide them whenever any overlay (panel, details, settings, menu) is open. */
+    private fun syncDoorVis() { if (::doorBox.isInitialized) doorBox.visibility = if (ovl.childCount > 0) View.INVISIBLE else View.VISIBLE }
     private fun renderDoors() {
         if (!::doorBox.isInitialized) return
+        syncDoorVis()
         doorBox.removeAllViews()
         val dark = night.visibility == View.VISIBLE
         val bare = dark || glance != null || !(::fab.isInitialized && fab.visibility == View.VISIBLE)
