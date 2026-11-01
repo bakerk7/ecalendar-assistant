@@ -19,7 +19,7 @@ data class Ev(
 }
 
 data class Chore(val id: String, val title: String, val emoji: String, val profile: String, val stars: Int, var done: Boolean,
-                 val days: String = "1111111", val time: String = "", val onceDate: String = "", val startDate: String = "", val grp: String = "")
+                 val days: String = "1111111", val time: String = "", val onceDate: String = "", val startDate: String = "", val grp: String = "", val date: String = "")
 data class Cal(val id: String, val name: String, val writable: Boolean)
 data class Reward(val id: String, val title: String, val emoji: String, val cost: Int, val profile: String?)
 data class Item(val id: String, val text: String, var done: Boolean)
@@ -48,7 +48,7 @@ object Parse {
     fun cals(a: JSONArray?) = a?.objs()?.map { Cal(it.s("id"), it.s("name"), it.optBoolean("writable", true)) } ?: emptyList()
     fun chores(a: JSONArray) = a.objs().map {
         Chore(it.s("id"), it.s("title"), it.s("emoji"), it.s("profile_id"), it.optInt("stars"), it.optBoolean("done"),
-            it.s("days").ifEmpty { "1111111" }, it.s("time"), it.s("once_date"), it.s("start_date"), it.s("grp"))
+            it.s("days").ifEmpty { "1111111" }, it.s("time"), it.s("once_date"), it.s("start_date"), it.s("grp"), it.s("date"))
     }
     fun rewards(a: JSONArray) = a.objs().map {
         Reward(it.s("id"), it.s("title"), it.s("emoji"), it.optInt("cost"), it.s("profile_id").ifEmpty { null })

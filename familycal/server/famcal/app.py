@@ -386,7 +386,14 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
         s, e = _day(start, "start"), _day(end, "end")
         if e < s or (e - s).days > 120:
             raise HTTPException(400, "bad range")
+        # tasks for every visible day (week/day views; month is too wide to show them, so skip big ranges)
+        by_date = {}
+        if (e - s).days <= 16:
+            d = s
+            while d <= e:
+                by_date[d.isoformat()] = svc.chores_for(d); d += timedelta(days=1)
         return {"profiles": svc.profiles(), "items": svc.instances(s, e), "chores": svc.chores_for(_day(chores_date) if chores_date else date.today()), "reminders": svc.upcoming_reminders(),
+                "chores_by_date": by_date,
                 "calendars": [{"id": c["id"], "name": c["name"], "color": c.get("color"),
                                "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),

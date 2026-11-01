@@ -46,6 +46,7 @@ class MainActivity : Activity(), Host {
     private var mode = "week"           // schedule | day | week | month
     private var anchor = D.today()
     private var choresDate = D.today()
+    private var choresByDate: Map<String, List<Chore>> = emptyMap()   // tasks for each visible day of the week/day view
     private val filter = linkedSetOf<String>()
     private var forcedNight = false
     private var wakeUntil = 0L
@@ -301,6 +302,7 @@ class MainActivity : Activity(), Host {
         people = order(profiles)
         events = Parse.events(j.getJSONArray("items"))
         chores = Parse.chores(j.getJSONArray("chores"))
+        choresByDate = j.optJSONObject("chores_by_date")?.let { o -> o.keys().asSequence().associateWith { Parse.chores(o.getJSONArray(it)) } } ?: emptyMap()
         rewards = Parse.rewards(j.getJSONArray("rewards"))
         cals = Parse.cals(j.optJSONArray("calendars"))
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
@@ -326,7 +328,8 @@ class MainActivity : Activity(), Host {
             out += Chip(e.title, e.allDay || multi, if (multi) -1 else e.startMin, e.endMin, ps, ev = e)
         }
         out.sortWith(compareBy({ !it.allDay }, { it.startMin }, { it.title }))
-        if (date == choresDate && prefs.getBoolean("chores_on_cal", true)) for (c in chores) {
+        val dayChores = choresByDate[date] ?: if (date == choresDate) chores else emptyList()
+        if (prefs.getBoolean("chores_on_cal", true)) for (c in dayChores) {
             if (filter.isNotEmpty() && c.profile !in filter) continue
             if (c.done && !showDone) continue
             out += Chip(c.title, true, -1, -1, listOf(prof(c.profile)), chore = c)
@@ -508,11 +511,11 @@ class MainActivity : Activity(), Host {
 
     private fun toggleChore(c: Chore) {
         c.done = !c.done; chipCache.clear(); render()
-        api.post("/api/chores/${c.id}/toggle", JSONObject().put("done", c.done).put("date", choresDate), { txt ->
+        api.post("/api/chores/${c.id}/toggle", JSONObject().put("done", c.done).put("date", c.date.ifEmpty { choresDate }), { txt ->
             val st = JSONObject(txt).optInt("stars")
             profiles = profiles.map { if (it.id == c.profile) it.copy(stars = st) else it }; pmap = profiles.associateBy { it.id }; people = order(profiles)
             if (c.done && c.stars > 0) toast("+${c.stars} stars for ${prof(c.profile).name}!")
-            render()
+            render(); lastJson = 0; refresh()   // keep the Tasks page and the week's task chips in step
         }, { c.done = !c.done; chipCache.clear(); toast(it); render() })
     }
 
@@ -1023,7 +1026,8 @@ class MainActivity : Activity(), Host {
         val c = card(px(560)).apply { setPadding(px(26), px(26), px(26), px(22)) }
         val h = hbox(this); h.addView(text("${ch.emoji} ${ch.title}", 24f, C.INK, C.BOLD, 2), lp(0, WRAP, 1f)); h.addView(closeX()); c.addView(h)
         c.addView(infoRow(Ico.PERSON, hbox(this).apply { addView(Avatar(context, p, px(26))); addView(text(p.name, 15f).apply { setPadding(px(8), 0, 0, 0) }) }))
-        val dayS = if (choresDate == D.today()) "Today" else D.short(choresDate)
+        val cd = ch.date.ifEmpty { choresDate }
+        val dayS = if (cd == D.today()) "Today" else D.short(cd)
         val rep = if (ch.onceDate.isNotEmpty()) "Once" else if (ch.days == "1111111") "Every day" else (0..6).filter { ch.days[it] == '1' }.joinToString(",") { Fmt.DOW[it] }
         c.addView(infoRow(Ico.CLOCK, text("$dayS · " + (if (ch.time.length >= 5) Fmt.clock(mins(ch.time)) else "All day") + if (ch.stars > 0) " · ${ch.stars} stars" else "", 15f)))
         c.addView(infoRow(Ico.REPEAT, text(rep, 15f)))
