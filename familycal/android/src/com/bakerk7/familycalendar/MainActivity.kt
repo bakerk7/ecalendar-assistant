@@ -834,23 +834,26 @@ class MainActivity : Activity(), Host {
             FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57)) })
     }
 
+    /** Stock "More" card: 26 Bold title + X, a light r12 tray holding small white r12 tiles (icon over a short centered label). */
     private fun moreMenu() {
         val s = scrim()
-        val c = card(px(560)).apply { setPadding(px(28), px(24), px(28), px(28)) }
-        val h = hbox(this)
-        h.addView(text("More", 24f, C.INK, C.BOLD), lp(0, WRAP, 1f))
+        val c = card(px(620)).apply { setPadding(0, px(24), 0, px(28)); elevation = fpx(8f) }
+        val h = hbox(this).apply { setPadding(px(28), 0, px(24), 0) }
+        h.addView(text("More", 26f, C.INK, C.BOLD), lp(0, WRAP, 1f))
         h.addView(closeX())
         c.addView(h)
-        val row = hbox(this).apply { setPadding(0, px(24), 0, 0) }
+        val tray = hbox(this, Gravity.TOP).apply { background = round(C.FIELD, 12f); setPadding(px(26), px(26), px(26), px(26)) }
         fun tile(icon: String, label: String, f: () -> Unit) = vbox(this).apply {
-            gravity = Gravity.CENTER; background = pressable(round(C.FIELD, 12f), round(C.PILL, 12f)); setPadding(0, px(18), 0, px(16))
-            addView(BmpView(context, Img.get(icon), px(44))); addView(text(label, 16f).apply { setPadding(0, px(10), 0, 0) })
+            gravity = Gravity.CENTER; background = pressable(round(Color.WHITE, 12f), round(C.PILL, 12f)); setPadding(px(6), px(16), px(6), px(14))
+            elevation = fpx(1f)
+            addView(BmpView(context, Img.get(icon), px(36)))
+            addView(text(label, 14f, C.INK).apply { gravity = Gravity.CENTER; setPadding(0, px(10), 0, 0) }, lp(MATCH, WRAP))
             setOnClickListener { closeOverlay(); f() }
         }
-        row.addView(tile("icon_home_setting", "Settings") { settings() }, lp(0, WRAP, 1f))
-        row.addView(tile("icon_home_home", "To tag ($toTag)") { showToTag() }, lp(0, WRAP, 1f).apply { leftMargin = px(14) })
-        row.addView(tile("icon_home_sleep", "Sleep now") { goNight() }, lp(0, WRAP, 1f).apply { leftMargin = px(14) })
-        c.addView(row)
+        tray.addView(tile("icon_home_setting", "Settings") { settings() }, lp(px(112), WRAP))
+        tray.addView(tile("icon_home_home", "To tag ($toTag)") { showToTag() }, lp(px(112), WRAP).apply { leftMargin = px(20) })
+        tray.addView(tile("icon_home_sleep", "Sleep now") { goNight() }, lp(px(112), WRAP).apply { leftMargin = px(20) })
+        c.addView(tray, lp(MATCH, WRAP).apply { setMargins(px(28), px(22), px(28), 0) })
         s.addView(c)
     }
 
