@@ -83,9 +83,28 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
                 "ecalendar": {"last": getattr(getattr(svc, "ecal_feed", None), "last", None), "error": getattr(getattr(svc, "ecal_feed", None), "error", None), "stats": getattr(getattr(svc, "ecal_feed", None), "stats", None), "shown": db.one("SELECT COUNT(*) n FROM events WHERE deleted=0 AND origin LIKE 'ecal-native%'")["n"], "hidden_duplicates": db.one("SELECT COUNT(*) n FROM events WHERE deleted=2")["n"]},
                 "to_tag": len(svc.to_tag(1000)), "calendars": svc.calendars()}
 
+    _sync_lock = threading.Lock()
+
     @app.post("/api/sync", dependencies=A)
-    def sync_now():
-        return {"changed": svc.sync(), "error": svc.last_sync_error}
+    def sync_now(full: bool = False):
+        """Re-pull Google (read-only). full=1 (the tablet's refresh button) also re-reads eCalendar-only events from
+        ecal-gateway and drops the weather + door caches so the next /api/home is fresh."""
+        if not full:
+            return {"changed": svc.sync(), "error": svc.last_sync_error}
+        ulog = logging.getLogger("uvicorn.error")
+        with _sync_lock:
+            t0 = time.time(); out = {"changed": svc.sync(), "error": svc.last_sync_error}
+            feed = getattr(svc, "ecal_feed", None)
+            if feed is not None:
+                feed.run_once(); out["ecal_error"] = feed.error; out["ecal_stats"] = feed.stats
+            svc._wx = (0, None)
+            d = getattr(app.state, "doors", None)
+            if d is not None:
+                d._cache = (0.0, None)
+            out["seconds"] = round(time.time() - t0, 2)
+            out["ok"] = out["changed"] >= 0 and not out.get("ecal_error")
+            ulog.info("manual full sync: changed=%s google_err=%s ecal_err=%s in %ss", out["changed"], out["error"], out.get("ecal_error"), out["seconds"])
+        return out
 
     @app.get("/api/profiles", dependencies=A)
     def profiles():

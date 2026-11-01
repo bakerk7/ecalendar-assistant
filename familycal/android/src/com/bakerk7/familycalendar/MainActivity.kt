@@ -175,7 +175,7 @@ class MainActivity : Activity(), Host {
         top.addView(timeDiv, lp(px(2), px(30)).apply { setMargins(px(14), 0, px(14), 0) })
         timeTv = text("", 34f, C.INK); top.addView(timeTv)
         top.addView(IconView(this, Ico(Ico.REFRESH, Color.parseColor("#8A909B"), 30f, 2.2f), px(30)).apply {
-            setOnClickListener { refresh(); toast("Refreshing…") } }, lp(px(30), px(30)).apply { setMargins(px(30), 0, px(30), 0) })
+            setOnClickListener { v -> syncNow(v) } }, lp(px(30), px(30)).apply { setMargins(px(30), 0, px(30), 0) })
         wxIcon = BmpView(this, Img.get("wx"), px(42)); top.addView(wxIcon)
         tempTv = text("", 34f, C.INK).apply { setPadding(px(14), 0, 0, 0) }; top.addView(tempTv)
         tagPill = text("", 16f, Color.WHITE, C.MED).apply {
@@ -269,6 +269,22 @@ class MainActivity : Activity(), Host {
         "schedule" -> anchor to D.add(anchor, 2)
         "month" -> D.add(D.monthStart(anchor), -7) to D.add(D.monthStart(anchor), 42)
         else -> anchor to D.add(anchor, 7)
+    }
+
+    /** Refresh button: helper re-pulls Google + eCalendar (and drops weather/door caches), then the app reloads. */
+    private var syncing = false
+    private var lastSyncTap = 0L
+    private fun syncNow(icon: View) {
+        val t = System.currentTimeMillis()
+        if (syncing || t - lastSyncTap < 3000) return      // debounce: one sync at a time, and not more than every 3 s
+        syncing = true; lastSyncTap = t
+        val spin = android.animation.ObjectAnimator.ofFloat(icon, View.ROTATION, 0f, 360f).apply {
+            duration = 900; repeatCount = android.animation.ValueAnimator.INFINITE; interpolator = android.view.animation.LinearInterpolator(); start() }
+        fun done(msg: String) { spin.cancel(); icon.rotation = 0f; syncing = false; toast(msg) }
+        api.post("/api/sync?full=1", JSONObject(), { txt ->
+            val ok = try { JSONObject(txt).optBoolean("ok", true) } catch (_: Exception) { true }
+            lastJson = 0; refresh(); done(if (ok) "Synced" else "Sync failed")
+        }, { lastJson = 0; refresh(); done("Sync failed") })
     }
 
     private fun refresh() {
