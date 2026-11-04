@@ -55,6 +55,9 @@ class DB:
         if path != ":memory:":
             self.c.execute("PRAGMA journal_mode=WAL")
         self.c.executescript(SCHEMA)
+        cols = {r[1] for r in self.c.execute("PRAGMA table_info(chores)")}
+        if "interval_weeks" not in cols:  # every-N-weeks chores; anchor week = start_date
+            self.c.execute("ALTER TABLE chores ADD COLUMN interval_weeks INTEGER DEFAULT 1")
         self.c.commit()
 
     def q(self, sql, args=()):

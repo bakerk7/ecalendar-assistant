@@ -387,6 +387,11 @@ class Service:
             else:
                 due = (c["days"] or "1111111")[dow] == "1" and (not c["start_date"] or c["start_date"] <= ds) \
                       and (not c["end_date"] or c["end_date"] >= ds)
+                n = int(c.get("interval_weeks") or 1)
+                if due and n > 1 and c["start_date"]:
+                    a = date.fromisoformat(c["start_date"])
+                    a -= timedelta(days=a.weekday())  # Monday of anchor week
+                    due = ((d - timedelta(days=dow)) - a).days // 7 % n == 0
             if due:
                 m = meta.get(c["id"]) or {}
                 out.append(dict(c, done=c["id"] in done, date=ds, time=m.get("time"), grp=m.get("grp")))

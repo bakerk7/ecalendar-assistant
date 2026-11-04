@@ -127,6 +127,9 @@ def run(src_path, db: DB, fixture: FixtureSource, today=None):
         fixture.seed(cal, evs)
 
     # ---------------- chores
+    # local-only every-N-weeks settings survive a re-import (anchor = start_date)
+    keep = {r["id"]: r for r in db.q("SELECT id, interval_weeks, start_date FROM chores "
+                                     "WHERE ecal_id IS NOT NULL AND COALESCE(interval_weeks,1) > 1")}
     db.x("DELETE FROM chores WHERE ecal_id IS NOT NULL")
     nch = 0
     for r in s.execute("SELECT * FROM calendar_event WHERE eventType='2'"):
@@ -157,6 +160,9 @@ def run(src_path, db: DB, fixture: FixtureSource, today=None):
                  (f"ec{r['eventId']}-{pid}", r["title"], _emoji(r["emoji"]), pid, int(r["starCount"] or 0), days,
                   sd or today.isoformat(), until, once, str(r["eventId"])))
             nch += 1
+
+    for k in keep.values():
+        db.x("UPDATE chores SET interval_weeks=?, start_date=? WHERE id=?", (k["interval_weeks"], k["start_date"], k["id"]))
 
     # ---------------- stars (balances) + rewards
     db.x("DELETE FROM ledger WHERE ref='import'")

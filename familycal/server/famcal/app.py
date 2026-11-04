@@ -216,7 +216,7 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
     def edit_chore(cid: str, body: dict = Body(...)):
         if not db.one("SELECT 1 FROM chores WHERE id=?", (cid,)):
             raise HTTPException(404, "not found")
-        for k in ("title", "emoji", "profile_id", "stars", "days", "start_date", "end_date", "once_date", "active", "sort"):
+        for k in ("title", "emoji", "profile_id", "stars", "days", "start_date", "end_date", "once_date", "active", "sort", "interval_weeks"):
             if k in body:
                 db.x(f"UPDATE chores SET {k}=? WHERE id=?", (body[k], cid))
         if "time" in body:
