@@ -235,13 +235,15 @@ class MainActivity : Activity(), Host {
     }
 
     private val railItems = ArrayList<Pair<String, View>>()
+    private val railIcons = HashMap<String, Pair<String, BmpView>>()
     private fun buildRail() {
         rail.setPadding(0, px(3), 0, px(12))
         fun item(key: String, icon: String, onClick: () -> Unit) {
             val f = FrameLayout(this).apply { setOnClickListener { onClick() } }
-            f.addView(BmpView(this, Img.get(icon), px(32)), FrameLayout.LayoutParams(px(32), px(32), Gravity.CENTER))
+            val iv = BmpView(this, Img.get(icon), px(32))
+            f.addView(iv, FrameLayout.LayoutParams(px(32), px(32), Gravity.CENTER))
             rail.addView(f, lp(MATCH, px(81)))
-            railItems += key to f
+            railItems += key to f; railIcons[key] = icon to iv
         }
         item("home", "icon_home_home") { page = "cal"; mode = "week"; anchor = D.today(); render() }
         item("cal", "icon_home_cal") { page = "cal"; if (mode == "week" && anchor == D.today()) mode = "month"; render() }
@@ -254,11 +256,26 @@ class MainActivity : Activity(), Host {
     }
     private fun railSelect() {
         val key = if (page != "cal") page else if (mode == "week" && anchor == D.today()) "home" else "cal"
-        for ((k, v) in railItems) v.foreground = if (k == key) SelBar() else null
+        val soft = Style.cur == Style.SOFT
+        for ((k, v) in railItems) {
+            val on = k == key
+            v.foreground = if (on) SelBar(if (soft) RailIcons.SEL else C.BLUE) else null
+            v.background = if (on && soft) RailTile() else null
+            railIcons[k]?.let { (icon, iv) -> val b = RailIcons.get(icon, on); if (iv.bmp !== b) { iv.bmp = b; iv.invalidate() } }
+        }
+    }
+    /** Soft pastel selected tile: 52x52, r14, centred in the 77x81 rail cell. */
+    private class RailTile : android.graphics.drawable.Drawable() {
+        private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = RailIcons.TILE }
+        override fun draw(c: android.graphics.Canvas) { val h = fpx(26f); val cx = bounds.exactCenterX(); val cy = bounds.exactCenterY()
+            c.drawRoundRect(cx - h, cy - h, cx + h, cy + h, fpx(14f), fpx(14f), p) }
+        override fun setAlpha(a: Int) {}
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+        @Deprecated("") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
     /** 3px blue bar on the rail's left edge (stock "selected" marker). */
-    private class SelBar : android.graphics.drawable.Drawable() {
-        private val p = android.graphics.Paint().apply { color = C.BLUE }
+    private class SelBar(col: Int = C.BLUE) : android.graphics.drawable.Drawable() {
+        private val p = android.graphics.Paint().apply { color = col }
         override fun draw(c: android.graphics.Canvas) { c.drawRect(0f, bounds.top.toFloat(), fpx(3f), bounds.bottom.toFloat(), p) }
         override fun setAlpha(a: Int) {}
         override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
@@ -1347,7 +1364,7 @@ class MainActivity : Activity(), Host {
     /** Settings ▸ General ▸ Color style: segmented Classic / Pastel / Gray pastel (stock pill look, selected = BLUE). */
     private fun styleSeg(after: () -> Unit): View = hbox(this).apply {
         background = round(C.FIELD, 21f); setPadding(px(4), px(4), px(4), px(4))
-        for ((id, label) in listOf(Style.CLASSIC to "Classic", Style.PASTEL to "Pastel", Style.GRAY to "Gray pastel")) {
+        for ((id, label) in listOf(Style.CLASSIC to "Classic", Style.PASTEL to "Pastel", Style.SOFT to "Soft pastel")) {
             val on = Style.cur == id
             addView(text(label, 15f, if (on) Color.WHITE else C.INK, if (on) C.MED else C.REG).apply {
                 gravity = Gravity.CENTER; setPadding(px(20), 0, px(20), 0); if (on) background = round(C.BLUE, 17f)
