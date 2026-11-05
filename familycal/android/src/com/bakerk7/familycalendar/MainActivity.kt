@@ -92,6 +92,7 @@ class MainActivity : Activity(), Host {
         Img.ctx = this
         api = Api(this)
         mode = prefs.getString("default_view", "week")!!; showDone = prefs.getBoolean("show_completed", false); Fmt.h24 = prefs.getBoolean("h24", false)
+        Style.cur = prefs.getString("color_style", Style.CLASSIC)!!
         takeConfig(intent)
         if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -156,11 +157,11 @@ class MainActivity : Activity(), Host {
 
     // ================================================================= skeleton
     private fun build() {
-        root = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+        root = FrameLayout(this).apply { setBackgroundColor(C.BG) }
         val main = hbox(this, Gravity.TOP)
         root.addView(main, FrameLayout.LayoutParams(MATCH, MATCH))
 
-        rail = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; setBackgroundColor(Color.WHITE) }
+        rail = vbox(this).apply { gravity = Gravity.CENTER_HORIZONTAL; setBackgroundColor(C.BG) }
         main.addView(rail, lp(px(77), MATCH))
         main.addView(View(this).apply { setBackgroundColor(C.SIDE_EDGE) }, lp(px(2), MATCH))
         buildRail()
@@ -348,6 +349,7 @@ class MainActivity : Activity(), Host {
 
     // ================================================================= render
     private fun render() {
+        root.setBackgroundColor(C.BG); rail.setBackgroundColor(C.BG)
         railSelect(); updateClock()
         tagPill.visibility = if (toTag > 0) View.VISIBLE else View.GONE
         tagPill.text = "$toTag to tag"
@@ -612,7 +614,7 @@ class MainActivity : Activity(), Host {
         val today = D.today()
         if (page != "cal" || anchor != today || choresDate != today) { page = "cal"; mode = "week"; anchor = today; choresDate = today; render(); refresh() }
         glance?.let { root.removeView(it) }
-        val g = FrameLayout(this).apply { setBackgroundColor(Color.WHITE); isClickable = true; tag = if (forced) "forced" else ""; setOnClickListener { closeGlance() } }
+        val g = FrameLayout(this).apply { setBackgroundColor(C.BG); isClickable = true; tag = if (forced) "forced" else ""; setOnClickListener { closeGlance() } }
         glance = g; root.addView(g, root.indexOfChild(night), FrameLayout.LayoutParams(MATCH, MATCH))
         fillGlance(g); updateClock(); refresh()
     }
@@ -1342,6 +1344,18 @@ class MainActivity : Activity(), Host {
 
     /** Stock full-screen Settings: back chevron + left menu (General / Calendar / Tasks / Sleep / Connection / About). */
     private var setSec = "General"
+    /** Settings ▸ General ▸ Color style: segmented Classic / Pastel / Gray pastel (stock pill look, selected = BLUE). */
+    private fun styleSeg(after: () -> Unit): View = hbox(this).apply {
+        background = round(C.FIELD, 21f); setPadding(px(4), px(4), px(4), px(4))
+        for ((id, label) in listOf(Style.CLASSIC to "Classic", Style.PASTEL to "Pastel", Style.GRAY to "Gray pastel")) {
+            val on = Style.cur == id
+            addView(text(label, 15f, if (on) Color.WHITE else C.INK, if (on) C.MED else C.REG).apply {
+                gravity = Gravity.CENTER; setPadding(px(20), 0, px(20), 0); if (on) background = round(C.BLUE, 17f)
+                setOnClickListener { if (Style.cur != id) { Style.cur = id; prefs.edit().putString("color_style", id).apply(); chipCache.clear(); render(); after() } }
+            }, lp(WRAP, px(34)))
+        }
+    }
+
     private fun settings(sec: String = setSec) {
         setSec = sec
         ovl.removeAllViews()
@@ -1393,6 +1407,7 @@ class MainActivity : Activity(), Host {
                 row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility })
                 row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
+                row("Color style", styleSeg { settings(sec) })
                 head("Show")
                 row("Show weather information", sw("show_weather", true) { render() })
                 row("Show chores on calendar", sw("chores_on_cal", true))

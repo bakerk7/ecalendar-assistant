@@ -29,8 +29,15 @@ import android.widget.TextView
 object C {
     var K = 1f
     val BLUE = Color.parseColor("#406DFF"); val FAB = Color.parseColor("#4F78FF")
-    val INK = Color.parseColor("#1E1E1E"); val MUT = Color.parseColor("#6E7582"); val MUT2 = Color.parseColor("#99A2B3")
-    val LINE = Color.parseColor("#EEEEEE"); val BAND = Color.parseColor("#F0F3F8"); val WKND = Color.parseColor("#F6F7F8")
+    // INK / MUT / MUT2 / LINE / WKND / BG follow Settings ▸ Color style (Classic values are the stock ones).
+    val INK: Int get() = Style.pick(0xFF1E1E1E, 0xFF1E1E1E, 0xFF3D3B38)
+    val MUT: Int get() = Style.pick(0xFF6E7582, 0xFF5F6673, 0xFF5E5B57)
+    val MUT2: Int get() = Style.pick(0xFF99A2B3, 0xFF8A91A0, 0xFF8A8682)
+    val LINE: Int get() = Style.pick(0xFFEEEEEE, 0xFFECE8E1, 0xFFE2DFDA)
+    val WKND: Int get() = Style.pick(0xFFF6F7F8, 0xFFF4F1EB, 0xFFECEAE6)
+    /** Page background behind the calendar (rail, top bar, grid). */
+    val BG: Int get() = Style.pick(0xFFFFFFFF, 0xFFFBF9F5, 0xFFF4F3F1)
+    val BAND = Color.parseColor("#F0F3F8")
     val PILL = Color.parseColor("#EBEBEB"); val FIELD = Color.parseColor("#F0F3F8"); val SIDE_EDGE = Color.parseColor("#F3F3F3")
     val SHARED = Color.parseColor("#2B45DE"); val RED = Color.parseColor("#F04343")
     val REG: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -51,9 +58,59 @@ fun mix(c: Int, w: Float): Int { // blend toward white
 /** Stock profile palette: strong colour + 70%-to-white pastel (matches #EE1B1B -> #FABBBB etc). */
 /** Per-profile tablet colour overrides from config app.color_overrides (server keeps its own colour for the phone page). */
 private val OVERRIDE = BuildCfg.COLOR_IDS.zip(BuildCfg.COLOR_VALUES.map { Color.parseColor(it) }).toMap()
-fun strong(p: Profile) = if (p.id == "family") C.SHARED else OVERRIDE[p.id] ?: p.color
-fun pastel(p: Profile) = if (p.id == "family") Color.parseColor("#C0C8F5") else mix(strong(p), .70f)
-fun taskPastel(p: Profile) = mix(strong(p), .82f)
+private fun base(p: Profile) = if (p.id == "family") C.SHARED else OVERRIDE[p.id] ?: p.color
+fun strong(p: Profile) = Style.pal(p, base(p))?.acc ?: base(p)
+fun pastel(p: Profile) = Style.pal(p, base(p))?.fill ?: if (p.id == "family") Color.parseColor("#C0C8F5") else mix(base(p), .70f)
+fun taskPastel(p: Profile) = Style.pal(p, base(p))?.task ?: mix(base(p), .82f)
+/** Chip subtitle (time) colour: classic grey, or the member's deep shade in Pastel / Gray pastel (>= 7:1 on the fill). */
+fun subInk(p: Profile) = Style.pal(p, base(p))?.sub ?: C.MUT
+fun titleInk(p: Profile) = Style.pal(p, base(p))?.title ?: C.INK
+/** 1px task-chip edge (Gray pastel only), 0 = none. */
+fun taskEdge(p: Profile) = Style.pal(p, base(p))?.edge ?: 0
+
+/** Settings ▸ Color style: "classic" (default, stock colours), "pastel", "gray" (gray pastel). Palettes from familycalendar/pastel/palette.md. */
+object Style {
+    const val CLASSIC = "classic"; const val PASTEL = "pastel"; const val GRAY = "gray"
+    var cur = CLASSIC
+    fun pick(classic: Long, pastel: Long, gray: Long): Int = (when (cur) { PASTEL -> pastel; GRAY -> gray; else -> classic }).toInt()
+    /** fill, task fill, accent, time/subtitle text, title text, task edge (0 = none). */
+    class Pal(val fill: Int, val task: Int, val acc: Int, val sub: Int, val title: Int, val edge: Int)
+    private fun P(a: Long, b: Long, c: Long, d: Long, e: Long, f: Long) = Pal(a.toInt(), b.toInt(), c.toInt(), d.toInt(), e.toInt(), f.toInt())
+    class M(val pastel: Pal, val gray: Pal)
+    private val TABLE = mapOf(
+        "jack" to M(P(0xFFE2F3FE, 0xFFEDF8FE, 0xFF3C92C7, 0xFF235574, 0xFF1E1E1E, 0),
+            P(0xFFC7D8E1, 0xFFDBE6EB, 0xFF4B7991, 0xFF2B4350, 0xFF262626, 0xFF80A2B2)),
+        "liv" to M(P(0xFFFAE6FF, 0xFFFCEFFF, 0xFFC658E0, 0xFF733282, 0xFF1E1E1E, 0),
+            P(0xFFDDCEDE, 0xFFE8DDE9, 0xFF9E55A5, 0xFF56305A, 0xFF262626, 0xFFAE80B2)),
+        "mom" to M(P(0xFFD9F4EE, 0xFFE7F8F4, 0xFF129B79, 0xFF0A5A46, 0xFF1E1E1E, 0),
+            P(0xFFC8DACE, 0xFFDDE9E1, 0xFF428057, 0xFF264731, 0xFF262626, 0xFF80B290)),
+        "dad" to M(P(0xFFFCDADA, 0xFFFDE8E8, 0xFFEE1B1B, 0xFF911010, 0xFF1E1E1E, 0),
+            P(0xFFE1C9C7, 0xFFEBDCDB, 0xFFA25B53, 0xFF56322E, 0xFF262626, 0xFFB28580)),
+        "bruce" to M(P(0xFFFDF0DB, 0xFFFEF6E9, 0xFFBC7F1B, 0xFF6E4A10, 0xFF1E1E1E, 0),
+            P(0xFFDDD3C5, 0xFFEAE4DC, 0xFF886E46, 0xFF4B3D28, 0xFF262626, 0xFFB29E80)),
+        "family" to M(P(0xFFDDE1F9, 0xFFE9ECFB, 0xFF2B45DE, 0xFF2338B6, 0xFF1E1E1E, 0),
+            P(0xFFBFC2D9, 0xFFDCDEEA, 0xFF5762A8, 0xFF2D3253, 0xFF262626, 0xFF8086B2))
+    )
+    private val gen = HashMap<String, Pal>()
+    /** Palette for a profile in the current non-classic style; profiles not in the table get a derived one. */
+    fun pal(p: Profile, base: Int): Pal? {
+        if (cur == CLASSIC) return null
+        TABLE[p.id]?.let { return if (cur == GRAY) it.gray else it.pastel }
+        return gen.getOrPut("$cur/${p.id}/$base") { derive(base) }
+    }
+    private fun derive(base: Int): Pal {
+        val hsv = FloatArray(3); Color.colorToHSV(base, hsv)
+        fun hsl(s: Float, l: Float): Int { // HSL -> RGB
+            val h = hsv[0] / 60f; val ch = (1 - Math.abs(2 * l - 1)) * s; val x = ch * (1 - Math.abs(h % 2 - 1)); val m = l - ch / 2
+            val (r, g, b) = when (h.toInt()) { 0 -> Triple(ch, x, 0f); 1 -> Triple(x, ch, 0f); 2 -> Triple(0f, ch, x); 3 -> Triple(0f, x, ch); 4 -> Triple(x, 0f, ch); else -> Triple(ch, 0f, x) }
+            return Color.rgb(((r + m) * 255).toInt(), ((g + m) * 255).toInt(), ((b + m) * 255).toInt())
+        }
+        return if (cur == GRAY) Pal(hsl(.26f, .82f), hsl(.26f, .89f), hsl(.32f, .42f), hsl(.30f, .25f), 0xFF262626.toInt(), hsl(.25f, .60f))
+        else Pal(mix(base, .84f), mix(base, .90f), mixBlack(base, .25f), mixBlack(base, .62f), 0xFF1E1E1E.toInt(), 0)
+    }
+}
+fun mixBlack(c: Int, w: Float) = Color.rgb((Color.red(c) * (1 - w)).toInt(), (Color.green(c) * (1 - w)).toInt(), (Color.blue(c) * (1 - w)).toInt())
+
 
 fun round(fill: Int, r: Float, stroke: Int = 0, strokeW: Float = 0f): GradientDrawable =
     GradientDrawable().apply {

@@ -65,6 +65,11 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
         fill.style = Paint.Style.FILL
         fill.color = if (ch.task) taskPastel(ps[0]) else pastel(ps[0])
         c.drawRoundRect(r, fpx(radius), fpx(radius), fill)
+        val edge = if (ch.task) taskEdge(ps[0]) else 0
+        if (edge != 0) { // Gray pastel: 1px inset edge so faint task chips still read (drawn inside r; no size change)
+            fill.style = Paint.Style.STROKE; fill.strokeWidth = fpx(1f); fill.color = edge; val h = fpx(.5f)
+            rf2.set(r.left + h, r.top + h, r.right - h, r.bottom - h); c.drawRoundRect(rf2, fpx(radius) - h, fpx(radius) - h, fill); fill.style = Paint.Style.FILL
+        }
         if (ps.size > 1) {
             c.save(); path.reset(); path.addRoundRect(r, fpx(radius), fpx(radius), Path.Direction.CW); c.clipPath(path)
             val seg = r.width() / ps.size; val slant = r.height() * .9f
@@ -101,8 +106,8 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
         }
         for (p in shown) { drawAvatar(c, p, Img.avatar(p.id), right - av, ay, av, bmpPaint, rf2); right -= av + fpx(4f) }
         val tw = right - x - fpx(6f)
-        text(c, ch.title, x, r.top + fpx(30f), 18f, if (ch.done) C.MUT else C.INK, tw)
-        text(c, ch.sub(), x, r.top + fpx(56f), 15f, C.MUT, tw)
+        text(c, ch.title, x, r.top + fpx(30f), 18f, if (ch.done) C.MUT else titleInk(ch.profs[0]), tw)
+        text(c, ch.sub(), x, r.top + fpx(56f), 15f, subInk(ch.profs[0]), tw)
     }
 
     /** Stock month/all-day strip: 29px, 2px bar, title left, time right. */
@@ -113,8 +118,8 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
         else if (ch.profs.size == 1) { fill.color = strong(ch.profs[0]); rf2.set(r.left, r.top + fpx(3f), r.left + fpx(2f), r.bottom - fpx(3f)); c.drawRect(rf2, fill) }
         val base = r.centerY() + fpx(size * .36f)
         var right = r.right - fpx(6f)
-        if (showRight) { tp.textSize = fpx(14f); val s = ch.right(); text(c, s, right, base, 14f, C.MUT, 0f, C.REG, Paint.Align.RIGHT); right -= tp.measureText(s) + fpx(6f) }
-        text(c, ch.title, x, base, size, if (ch.done) C.MUT else C.INK, right - x)
+        if (showRight) { tp.textSize = fpx(14f); val s = ch.right(); text(c, s, right, base, 14f, subInk(ch.profs[0]), 0f, C.REG, Paint.Align.RIGHT); right -= tp.measureText(s) + fpx(6f) }
+        text(c, ch.title, x, base, size, if (ch.done) C.MUT else titleInk(ch.profs[0]), right - x)
     }
 
     private var downX = 0f; private var downY = 0f; protected var dragging = false
