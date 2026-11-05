@@ -69,7 +69,7 @@ class MainActivity : Activity(), Host {
     private lateinit var timeTv: TextView
     private lateinit var timeDiv: View
     private lateinit var tempTv: TextView
-    private lateinit var wxIcon: View
+    private lateinit var wxIcon: BmpView
     private lateinit var topHours: FitRow
     private lateinit var tagPill: TextView
     private lateinit var pills: LinearLayout
@@ -380,6 +380,7 @@ class MainActivity : Activity(), Host {
         band.visibility = profBar.visibility
         fab.visibility = if (page == "rewards" || !prefs.getBoolean("show_fab", true)) View.GONE else View.VISIBLE
         camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility
+        softChrome()
         renderDoors()
         if (onCal) renderProfiles()
         pageHost.removeAllViews()
@@ -594,9 +595,10 @@ class MainActivity : Activity(), Host {
         val bare = dark || glance != null || !(::fab.isInitialized && fab.visibility == View.VISIBLE)
         (doorBox.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = if (bare) px(40) else px(57 + 56 + 14); doorBox.layoutParams = it }
         for ((name, open, since) in doors) {
-            val pill = hbox(this).apply { background = if (dark) round(Color.parseColor("#1C1F26"), 18f, Color.parseColor("#3A3F4A"), fpx(1.5f)) else round(Color.WHITE, 18f, Color.parseColor("#E3E6EC"), fpx(1.5f))
+            val pill = hbox(this).apply { background = if (dark) round(Color.parseColor("#1C1F26"), 18f, Color.parseColor("#3A3F4A"), fpx(1.5f)) else if (Style.cur == Style.SOFT) round(Color.parseColor("#EFECE7"), 18f, Color.parseColor("#E0DBD3"), fpx(1.5f))
+                else round(Color.WHITE, 18f, Color.parseColor("#E3E6EC"), fpx(1.5f))
                 setPadding(px(14), 0, px(16), 0); elevation = if (dark) 0f else fpx(3f) }
-            pill.addView(View(this).apply { background = oval(Color.parseColor(if (open) "#F5A524" else "#34C77B")) }, lp(px(10), px(10)).apply { rightMargin = px(10) })
+            pill.addView(View(this).apply { background = oval(Color.parseColor(if (!dark && Style.cur == Style.SOFT) (if (open) "#C9963A" else "#5E9E72") else if (open) "#F5A524" else "#34C77B")) }, lp(px(10), px(10)).apply { rightMargin = px(10) })
             val col = if (dark) Color.parseColor(if (open) "#E3E7EE" else "#6B717C") else if (open) C.INK else C.MUT
             pill.addView(text(if (open) "$name open ${doorAge(since)}" else "$name closed", if (dark) 22f else 15f, col, if (open) C.MED else C.REG))
             doorBox.addView(pill, lp(WRAP, px(if (dark) 48 else 36)).apply { topMargin = px(8) })
@@ -697,6 +699,16 @@ class MainActivity : Activity(), Host {
     }
 
     /** Compact top-bar strip (weekly view): current hour + next 8; trailing cells drop if they don't fit. */
+    /** Soft pastel finishing touches on views built once in build(): top-bar text/weather icon, + and camera FABs. Classic/Pastel get the stock values back. */
+    private fun softChrome() {
+        val soft = Style.cur == Style.SOFT
+        titleTv.setTextColor(C.INK); timeTv.setTextColor(C.INK); tempTv.setTextColor(C.INK)
+        RailIcons.get("wx", false).let { if (wxIcon.bmp !== it) { wxIcon.bmp = it; wxIcon.invalidate() } }
+        for (f in listOf(fab, camFab)) { f.background = oval(if (soft) RailIcons.SEL else C.FAB); f.elevation = if (soft) fpx(4f) else 0f }
+    }
+    /** Soft pastel: hourly emoji shown at 35% saturation (muted, still recognisable). */
+    private val softEmoji by lazy { android.graphics.Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply { setSaturation(.35f) }) } }
+
     private fun renderTopHours(wxOn: Boolean) {
         topHours.removeAllViews()
         val w = weather
@@ -705,12 +717,14 @@ class MainActivity : Activity(), Host {
         val hs = w.hours.filter { it.time.length >= 13 && it.time.substring(0, 13) >= now }.take(9)
         if (hs.isEmpty()) return
         for ((i, h) in hs.withIndex()) {
-            val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2)); background = hourBg(h, i == 0, 0, 8f) }
+            val soft = Style.cur == Style.SOFT; val nowCol = if (soft) RailIcons.SEL else NOW_BLUE
+            val cell = vbox(this).apply { gravity = Gravity.CENTER; setPadding(0, px(2), 0, px(2)); background = hourBg(h, i == 0, 0, 8f, soft) }
             val lbl = if (i == 0) "Now" else when { h.hour == 0 -> "12A"; h.hour < 12 -> "${h.hour}A"; h.hour == 12 -> "12P"; else -> "${h.hour - 12}P" }
-            cell.addView(text(lbl, 12f, if (i == 0) NOW_BLUE else C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 17f).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(lbl, 12f, if (i == 0) nowCol else C.MUT, if (i == 0) C.BOLD else C.REG).apply { gravity = Gravity.CENTER; includeFontPadding = false })
+            cell.addView(text(Parse.wxEmoji(h.code, h.isDay), 17f).apply { gravity = Gravity.CENTER; includeFontPadding = false
+                if (soft) setLayerType(View.LAYER_TYPE_HARDWARE, softEmoji) })
             cell.addView(text("${h.temp}°", 14f, C.INK, C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false })
-            precipLine(h, 10f)?.let { cell.addView(it) }
+            precipLine(h, 10f, soft)?.let { cell.addView(it) }
             topHours.addView(cell, lp(0, WRAP, 1f).apply { if (i > 0) leftMargin = px(4); gravity = Gravity.CENTER_VERTICAL })
         }
     }
@@ -736,15 +750,18 @@ class MainActivity : Activity(), Host {
     private val SNOW_BLUE = Color.parseColor("#2A9FD6")
     private val SNOW_TINT = Color.parseColor("#E3F4FC")
     /** Cell background: icy tint only for snow/sleet hours; blue outline on the Now cell. */
-    private fun hourBg(h: Hour, isNow: Boolean, base: Int, r: Float): android.graphics.drawable.Drawable? {
-        val fill = if (h.kind == "snow" || h.kind == "sleet") SNOW_TINT else base
+    private fun hourBg(h: Hour, isNow: Boolean, base: Int, r: Float, soft: Boolean = false): android.graphics.drawable.Drawable? {
+        val fill = if (h.kind == "snow" || h.kind == "sleet") (if (soft) Color.parseColor("#E6EDF0") else SNOW_TINT) else base
         if (!isNow && fill == 0) return null
-        return round(fill, r, if (isNow) NOW_BLUE else 0, if (isNow) 2f else 0f)
+        return round(fill, r, if (isNow) (if (soft) RailIcons.SEL else NOW_BLUE) else 0, if (isNow) 2f else 0f)
     }
     /** Inline "💧 40%" / "❄ 60%" / "⚡ 30%" under the temp; null when no meaningful precip. */
-    private fun precipLine(h: Hour, sp: Float): TextView? {
+    private fun precipLine(h: Hour, sp: Float, soft: Boolean = false): TextView? {
         val g = Parse.precipGlyph(h) ?: return null
-        val col = if (h.kind == "snow" || h.kind == "sleet") SNOW_BLUE else if (h.kind == "storm") Color.parseColor("#7C5CE0") else RAIN_BLUE
+        val snow = h.kind == "snow" || h.kind == "sleet"
+        // Soft pastel: muted rain/snow/storm (all >= 4.7:1 on #F7F5F2 / snow tint)
+        val col = if (soft) Color.parseColor(if (snow) "#3D6E85" else if (h.kind == "storm") "#65568F" else "#46658F")
+            else if (snow) SNOW_BLUE else if (h.kind == "storm") Color.parseColor("#7C5CE0") else RAIN_BLUE
         return text("$g${h.pop}%", sp, col, if (h.pop >= 50) C.BOLD else C.MED).apply { gravity = Gravity.CENTER; includeFontPadding = false; maxLines = 1 }
     }
 
