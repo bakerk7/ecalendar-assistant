@@ -85,41 +85,43 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
 
     /** Stock week/day chip: 76px card, accent bar, title, subtitle, avatar(s), task circle. */
     protected fun bigChip(c: Canvas, r: RectF, ch: Chip, allAvatars: Boolean) {
-        chipBg(c, r, ch, 10f)
-        var x = r.left + fpx(10f)
+        chipBg(c, r, ch, Font.s(10f, 8f))
+        var x = r.left + fpx(Font.s(10f, 8f))
         if (!ch.task && ch.profs.size == 1) {
-            fill.color = strong(ch.profs[0]); rf2.set(x, r.top + fpx(14f), x + fpx(3f), r.bottom - fpx(14f)); c.drawRect(rf2, fill); x += fpx(10f)
+            fill.color = strong(ch.profs[0]); rf2.set(x, r.top + fpx(Font.s(14f, 10f)), x + fpx(Font.s(3f, 2f)), r.bottom - fpx(Font.s(14f, 10f))); c.drawRect(rf2, fill); x += fpx(Font.s(10f, 8f))
         }
         var right = r.right - fpx(12f)
         if (ch.task) {
-            val s = fpx(24f); val cy = r.centerY() + fpx(12f)
+            val s = fpx(Font.s(24f, 18f)); val cy = r.centerY() + fpx(Font.s(12f, 8f))
             fill.color = if (ch.done) strong(ch.profs[0]) else Color.WHITE
             c.drawCircle(right - s / 2, cy, s / 2, fill)
             if (!ch.done) { fill.style = Paint.Style.STROKE; fill.strokeWidth = fpx(1f); fill.color = Color.parseColor("#C9CED6"); c.drawCircle(right - s / 2, cy, s / 2, fill); fill.style = Paint.Style.FILL }
             else { check.setBounds((right - s + fpx(4f)).toInt(), (cy - s / 2 + fpx(4f)).toInt(), (right - fpx(4f)).toInt(), (cy + s / 2 - fpx(4f)).toInt()); check.draw(c) }
             right -= s + fpx(8f)
         }
-        val av = fpx(26f); val ay = r.centerY() + fpx(12f) - av / 2
+        val av = fpx(Font.s(26f, 20f)); val ay = r.centerY() + fpx(Font.s(12f, 8f)) - av / 2
         val shown = if (allAvatars) ch.profs.reversed() else listOf(ch.profs[0])
         if (!allAvatars && ch.profs.size > 1) {
             text(c, "+${ch.profs.size - 1}", right, ay + av * .7f, 13f, C.INK, 0f, C.MED, Paint.Align.RIGHT); right -= fpx(22f)
         }
         for (p in shown) { drawAvatar(c, p, Img.avatar(p.id), right - av, ay, av, bmpPaint, rf2); right -= av + fpx(4f) }
         val tw = right - x - fpx(6f)
-        text(c, ch.title, x, r.top + fpx(30f), 18f, if (ch.done) C.MUT else titleInk(ch.profs[0]), tw)
-        text(c, ch.sub(), x, r.top + fpx(56f), 15f, subInk(ch.profs[0]), tw)
+        text(c, ch.title, x, r.top + fpx(Font.s(30f, 20f)), Font.s(18f, 16f), if (ch.done) C.MUT else titleInk(ch.profs[0]), tw)
+        text(c, ch.sub(), x, r.top + fpx(Font.s(56f, 38f)), Font.s(15f, 13f), subInk(ch.profs[0]), tw)
     }
 
-    /** Stock month/all-day strip: 29px, 2px bar, title left, time right. */
-    protected fun smallChip(c: Canvas, r: RectF, ch: Chip, showRight: Boolean = true, size: Float = 16f) {
-        chipBg(c, r, ch, 8f)
+    /** Stock month/all-day strip: 29px (Small: 24px, 14/12 type), 2px bar, title left, time right. */
+    protected fun smallChip(c: Canvas, r: RectF, ch: Chip, showRight: Boolean = true, size: Float = Font.s(16f, 14f)) {
+        chipBg(c, r, ch, Font.s(8f, 7f))
         var x = r.left + fpx(6f)
-        if (ch.task) { val s = fpx(15f); smallCheck.setBounds(x.toInt(), (r.centerY() - s / 2).toInt(), (x + s).toInt(), (r.centerY() + s / 2).toInt()); smallCheck.draw(c); x += s + fpx(5f) }
+        if (ch.task) { val s = fpx(Font.s(15f, 13f)); smallCheck.setBounds(x.toInt(), (r.centerY() - s / 2).toInt(), (x + s).toInt(), (r.centerY() + s / 2).toInt()); smallCheck.draw(c); x += s + fpx(5f) }
         else if (ch.profs.size == 1) { fill.color = strong(ch.profs[0]); rf2.set(r.left, r.top + fpx(3f), r.left + fpx(2f), r.bottom - fpx(3f)); c.drawRect(rf2, fill) }
-        val base = r.centerY() + fpx(size * .36f)
+        val sz = if (size == 16f) Font.s(16f, 14f) else size
+        val tm = Font.s(14f, 12f)
+        val base = r.centerY() + fpx(sz * .36f)
         var right = r.right - fpx(6f)
-        if (showRight) { tp.textSize = fpx(14f); val s = ch.right(); text(c, s, right, base, 14f, subInk(ch.profs[0]), 0f, C.REG, Paint.Align.RIGHT); right -= tp.measureText(s) + fpx(6f) }
-        text(c, ch.title, x, base, size, if (ch.done) C.MUT else titleInk(ch.profs[0]), right - x)
+        if (showRight) { tp.textSize = fpx(tm); val s = ch.right(); text(c, s, right, base, tm, subInk(ch.profs[0]), 0f, C.REG, Paint.Align.RIGHT); right -= tp.measureText(s) + fpx(6f) }
+        text(c, ch.title, x, base, sz, if (ch.done) C.MUT else titleInk(ch.profs[0]), right - x)
     }
 
     private var downX = 0f; private var downY = 0f; protected var dragging = false
@@ -162,7 +164,7 @@ class WeekView(h: Host, private val start: String) : ChipCanvas(h) {
     private val scroll = FloatArray(7)
     private val cell = Rect()
     private val plus = Ico(Ico.PLUS, C.MUT, 16f, 1.6f)
-    private val HEAD = 66f; private val CH = 76f; private val GAP = 4f; private val M = 8f
+    private val HEAD = 66f; private val CH get() = Font.s(76f, 52f); private val GAP = 4f; private val M = 8f
 
     private fun cellRect(i: Int, out: Rect) {
         val cw = width / 4f; val chh = height / 2f; val col = i % 4; val row = i / 4
@@ -247,7 +249,7 @@ class MonthView(h: Host, private val month: String) : ChipCanvas(h) {
             if (col > 0) c.drawLine(l, HEAD, l, height.toFloat(), line)
         }
         c.drawLine(0f, HEAD - .5f, width.toFloat(), HEAD - .5f, line)
-        val pitch = fpx(33f); val chipH = fpx(29f)
+        val pitch = fpx(Font.s(33f, 28f)); val chipH = fpx(Font.s(29f, 24f))
         for (i in 0 until rows * 7) {
             val d = D.add(gridStart, i); val col = i % 7; val row = i / 7
             val l = col * cw; val t = HEAD + row * chh; val b = t + chh
@@ -284,7 +286,7 @@ class DayView(h: Host, private val day: String) : ChipCanvas(h) {
     private val SIDE = 362f
 
     override fun onDrag(dy: Float, x: Float, y: Float) {
-        val content = fpx(62f) + list.size * fpx(80f)
+        val content = fpx(62f) + list.size * fpx(Font.s(80f, 56f))
         sc = (sc - dy).coerceIn(0f, (content - height).coerceAtLeast(0f)); invalidate()
     }
 
@@ -298,9 +300,9 @@ class DayView(h: Host, private val day: String) : ChipCanvas(h) {
         text(c, title, fpx(16f), fpx(44f) - sc, 26f, C.INK, 0f)
         var y = fpx(62f) - sc
         for (ch in list) {
-            rf.set(fpx(8f), y, sx - fpx(14f), y + fpx(76f)); bigChip(c, rf, ch, true)
+            rf.set(fpx(8f), y, sx - fpx(14f), y + fpx(Font.s(76f, 52f))); bigChip(c, rf, ch, true)
             hit(rf.left, rf.top, rf.right, rf.bottom) { h.onChip(ch) }
-            y += fpx(80f)
+            y += fpx(Font.s(80f, 56f))
         }
         if (list.isEmpty()) text(c, "No event", sx / 2, height / 2f, 16f, C.MUT2, 0f, C.REG, Paint.Align.CENTER)
         c.restore()

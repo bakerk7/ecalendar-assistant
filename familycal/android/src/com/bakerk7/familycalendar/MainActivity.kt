@@ -93,6 +93,7 @@ class MainActivity : Activity(), Host {
         api = Api(this)
         mode = prefs.getString("default_view", "week")!!; showDone = prefs.getBoolean("show_completed", false); Fmt.h24 = prefs.getBoolean("h24", false)
         Style.cur = prefs.getString("color_style", Style.CLASSIC)!!
+        Font.cur = prefs.getString("font_size", Font.MEDIUM)!!
         takeConfig(intent)
         if (prefs.getBoolean("keep_on", true)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -1379,6 +1380,23 @@ class MainActivity : Activity(), Host {
     /** Stock full-screen Settings: back chevron + left menu (General / Calendar / Tasks / Sleep / Connection / About). */
     private var setSec = "General"
     /** Settings ▸ General ▸ Color style: segmented Classic / Pastel / Gray pastel (stock pill look, selected = BLUE). */
+    /** Settings ▸ General ▸ Font Size: stock radio row, Small / Medium only (Medium = current sizes). */
+    private fun fontRadios(after: () -> Unit): View = hbox(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        for ((id, label) in listOf(Font.SMALL to "Small", Font.MEDIUM to "Medium")) {
+            val on = Font.cur == id
+            val item = hbox(this@MainActivity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(px(16), 0, 0, 0)
+                addView(FrameLayout(context).apply {
+                    background = oval(Color.TRANSPARENT, if (on) C.BLUE else Color.parseColor("#C9CED6"), 2f)
+                    if (on) addView(View(context).apply { background = oval(C.BLUE) }, FrameLayout.LayoutParams(px(8), px(8), Gravity.CENTER))
+                }, lp(px(18), px(18)))
+                addView(text(label, 15f, C.INK).apply { setPadding(px(8), 0, 0, 0) })
+                setOnClickListener { if (Font.cur != id) { Font.cur = id; prefs.edit().putString("font_size", id).apply(); chipCache.clear(); render(); after() } }
+            }
+            addView(item)
+        }
+    }
+
     private fun styleSeg(after: () -> Unit): View = hbox(this).apply {
         background = round(C.FIELD, 21f); setPadding(px(4), px(4), px(4), px(4))
         for ((id, label) in listOf(Style.CLASSIC to "Classic", Style.PASTEL to "Pastel", Style.SOFT to "Soft pastel")) {
@@ -1442,6 +1460,7 @@ class MainActivity : Activity(), Host {
                 row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
                 row("Color style", styleSeg { settings(sec) })
+                row("Font Size", fontRadios { settings(sec) })
                 head("Show")
                 row("Show weather information", sw("show_weather", true) { render() })
                 row("Show chores on calendar", sw("chores_on_cal", true))

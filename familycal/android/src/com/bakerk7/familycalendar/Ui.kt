@@ -68,6 +68,14 @@ fun titleInk(p: Profile) = Style.pal(p, base(p))?.title ?: C.INK
 /** 1px task-chip edge (Gray pastel only), 0 = none. */
 fun taskEdge(p: Profile) = Style.pal(p, base(p))?.edge ?: 0
 
+/** Settings ▸ General ▸ Font Size: "medium" (default, current sizes) or "small" (compact week/day chips). Medium values are the stock literals so Medium stays pixel-identical. */
+object Font {
+    const val MEDIUM = "medium"; const val SMALL = "small"
+    var cur = MEDIUM
+    val small get() = cur == SMALL
+    fun s(medium: Float, small: Float) = if (cur == SMALL) small else medium
+}
+
 /** Settings ▸ Color style: "classic" (default, stock colours), "pastel", "gray" (= Soft pastel; was Gray pastel). Palettes from familycalendar/pastel/palette.md. */
 object Style {
     const val CLASSIC = "classic"; const val PASTEL = "pastel"; /** Soft pastel. Stored value stays "gray" (it replaced Gray pastel), so existing users switch automatically. */
