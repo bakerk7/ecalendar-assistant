@@ -175,15 +175,27 @@ object Img {
     private val cache = HashMap<String, Bitmap?>()
     lateinit var ctx: Context
     fun get(name: String): Bitmap? = cache.getOrPut(name) {
-        try { ctx.assets.open("$name.png").use { BitmapFactory.decodeStream(it) } } catch (e: Exception) { null }
+        try {
+            ctx.assets.open("$name.png").use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inScaled = false
+                })
+            }
+        } catch (e: Exception) { null }
     }
-    fun avatar(id: String) = get("av_$id")
+    fun avatar(id: String, sizePx: Int = 0): Bitmap? {
+        val raw = get("av_$id") ?: return null
+        if (sizePx <= 0 || (raw.width == sizePx && raw.height == sizePx)) return raw
+        val key = "av_${id}_$sizePx"
+        return cache.getOrPut(key) { Bitmap.createScaledBitmap(raw, sizePx, sizePx, true) }
+    }
 }
 
 /** Avatar: stock photo crop if we have one, else coloured circle + initial (like the stock "S"). */
 class Avatar(ctx: Context, private val p: Profile, private val sizePx: Int) : View(ctx) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val bmp = Img.avatar(p.id)
+    private val bmp = Img.avatar(p.id, sizePx)
     private val r = RectF()
     override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(sizePx, sizePx)
     override fun onDraw(c: Canvas) = drawAvatar(c, p, bmp, 0f, 0f, sizePx.toFloat(), paint, r)

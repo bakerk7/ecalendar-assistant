@@ -83,7 +83,7 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
         }
     }
 
-    /** Stock week/day chip: 76px card, accent bar, title, subtitle, avatar(s), task circle. */
+    /** Week/day chip: 76px (Small 52) card, accent bar, title, subtitle, avatar(s), task circle. */
     protected fun bigChip(c: Canvas, r: RectF, ch: Chip, allAvatars: Boolean) {
         chipBg(c, r, ch, Font.s(10f, 8f))
         var x = r.left + fpx(Font.s(10f, 8f))
@@ -91,20 +91,26 @@ abstract class ChipCanvas(protected val h: Host) : View(h.ctx) {
             fill.color = strong(ch.profs[0]); rf2.set(x, r.top + fpx(Font.s(14f, 10f)), x + fpx(Font.s(3f, 2f)), r.bottom - fpx(Font.s(14f, 10f))); c.drawRect(rf2, fill); x += fpx(Font.s(10f, 8f))
         }
         var right = r.right - fpx(12f)
+        // Avatar and checkbox are vertically centered on the chip (Medium 44 in 76 = 16px
+        // margins; Small 34 in 52 = 9px). The old +12/+8 downward offset left only ~4px / 1px
+        // at the bottom with these sizes.
         if (ch.task) {
-            val s = fpx(Font.s(24f, 18f)); val cy = r.centerY() + fpx(Font.s(12f, 8f))
+            val s = fpx(Font.s(24f, 18f)); val cy = r.centerY()
             fill.color = if (ch.done) strong(ch.profs[0]) else Color.WHITE
             c.drawCircle(right - s / 2, cy, s / 2, fill)
             if (!ch.done) { fill.style = Paint.Style.STROKE; fill.strokeWidth = fpx(1f); fill.color = Color.parseColor("#C9CED6"); c.drawCircle(right - s / 2, cy, s / 2, fill); fill.style = Paint.Style.FILL }
             else { check.setBounds((right - s + fpx(4f)).toInt(), (cy - s / 2 + fpx(4f)).toInt(), (right - fpx(4f)).toInt(), (cy + s / 2 - fpx(4f)).toInt()); check.draw(c) }
             right -= s + fpx(8f)
         }
-        val av = fpx(Font.s(26f, 20f)); val ay = r.centerY() + fpx(Font.s(12f, 8f)) - av / 2
-        val shown = if (allAvatars) ch.profs.reversed() else listOf(ch.profs[0])
-        if (!allAvatars && ch.profs.size > 1) {
-            text(c, "+${ch.profs.size - 1}", right, ay + av * .7f, 13f, C.INK, 0f, C.MED, Paint.Align.RIGHT); right -= fpx(22f)
+        val av = fpx(Font.s(44f, 34f)); val ay = r.centerY() - av / 2
+        // Week view: first face + "+N". Day view: up to 3 faces, then "+N", so a 5-person
+        // family event doesn't grow a bulky row of 44px portraits.
+        val maxFaces = if (allAvatars) 3 else 1
+        val shown = ch.profs.take(maxFaces).let { if (allAvatars) it.reversed() else it }
+        if (ch.profs.size > maxFaces) {
+            text(c, "+${ch.profs.size - maxFaces}", right, ay + av * .7f, 13f, C.INK, 0f, C.MED, Paint.Align.RIGHT); right -= fpx(22f)
         }
-        for (p in shown) { drawAvatar(c, p, Img.avatar(p.id), right - av, ay, av, bmpPaint, rf2); right -= av + fpx(4f) }
+        for (p in shown) { drawAvatar(c, p, Img.avatar(p.id, av.toInt()), right - av, ay, av, bmpPaint, rf2); right -= av + fpx(4f) }
         val tw = right - x - fpx(6f)
         text(c, ch.title, x, r.top + fpx(Font.s(30f, 20f)), Font.s(18f, 16f), if (ch.done) C.MUT else titleInk(ch.profs[0]), tw)
         text(c, ch.sub(), x, r.top + fpx(Font.s(56f, 38f)), Font.s(15f, 13f), subInk(ch.profs[0]), tw)
