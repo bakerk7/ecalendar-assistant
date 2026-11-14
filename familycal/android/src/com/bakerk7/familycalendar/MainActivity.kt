@@ -83,6 +83,8 @@ class MainActivity : Activity(), Host {
     private lateinit var pageHost: FrameLayout
     private lateinit var fab: View
     private lateinit var camFab: View
+    private lateinit var fireFab: FrameLayout
+    private lateinit var alarmFab: FrameLayout
     private lateinit var ovl: FrameLayout
     private lateinit var night: FrameLayout
     private lateinit var nightClock: TextView
@@ -215,8 +217,13 @@ class MainActivity : Activity(), Host {
             addView(IconView(context, Ico(Ico.VIDEO, Color.WHITE, 30f, 2.2f), px(30)), FrameLayout.LayoutParams(px(30), px(30), Gravity.CENTER)) }
         camFab.contentDescription = BuildCfg.CAMERA_LABEL
         root.addView(camFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16), px(57)) })
+        // fireplace + alarm: same 56px oval as the camera / + FABs, in that row (fire, alarm, camera, +)
+        fireFab = FrameLayout(this).apply { addView(CtrlIcon(this@MainActivity, true), FrameLayout.LayoutParams(MATCH, MATCH)); visibility = View.GONE }
+        alarmFab = FrameLayout(this).apply { addView(CtrlIcon(this@MainActivity, false), FrameLayout.LayoutParams(MATCH, MATCH)); visibility = View.GONE }
+        root.addView(fireFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16 + 56 + 16 + 56 + 16), px(57)) })
+        root.addView(alarmFab, FrameLayout.LayoutParams(px(56), px(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42 + 56 + 16 + 56 + 16), px(57)) })
 
-        // open-door pills, stacked just above the + / camera buttons
+        // open-door pills, stacked just above the FAB row (fire / alarm / camera / +)
         doorBox = vbox(this).apply { gravity = Gravity.END }
         root.addView(doorBox, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, px(42), px(57 + 56 + 14)) })
 
@@ -635,86 +642,54 @@ class MainActivity : Activity(), Host {
         }, { finishControl(key); controlsAt = 0L; renderDoors(); toast(it) })
     }
 
-    private fun controlIcons(dark: Boolean): View {
-        val row = hbox(this).apply { gravity = Gravity.END; clipChildren = false; clipToPadding = false }
-        var first = true
-        for (key in listOf("fireplace", "alarm")) {
-            val st = controls.optJSONObject(key) ?: continue
-            val fire = key == "fireplace"
-            val active = st.optBoolean(if (fire) "on" else "armed")
-            val state = st.optString("state", "unknown")
-            val fresh = System.currentTimeMillis() - controlsAt < 15_000
-            val busy = controlBusy.contains(key)
-            val live = fresh && st.optBoolean("ok")
-            val ok = live && !busy
-            val on = live && active
-            val h = if (dark) 48 else 36
-            val w = if (dark) 64 else 56
-            val iconPx = if (dark) 30f else 22f
-            val fill: Int
-            val border: Int
-            val ink: Int
-            val mark: Int
-            when {
-                on && fire && dark -> { fill = Color.parseColor("#2E2219"); border = Color.parseColor("#6A4426"); ink = Color.parseColor("#F08A45"); mark = Color.parseColor("#FFC861") }
-                on && fire -> { fill = Color.parseColor("#FBE3CF"); border = Color.parseColor("#F0C29C"); ink = Color.parseColor("#E0763A"); mark = Color.parseColor("#FFD078") }
-                on && dark -> { fill = Color.parseColor("#182A20"); border = Color.parseColor("#2E5A40"); ink = Color.parseColor("#34C77B"); mark = fill }
-                on -> { fill = Color.parseColor("#DCEFE2"); border = Color.parseColor("#B5DAC2"); ink = Color.parseColor("#4E9A6A"); mark = Color.WHITE }
-                dark -> { fill = Color.parseColor("#1C1F26"); border = Color.parseColor("#3A3F4A"); ink = Color.parseColor("#6B717C"); mark = 0 }
-                Style.cur == Style.SOFT -> { fill = Color.parseColor("#EFECE7"); border = Color.parseColor("#E0DBD3"); ink = Color.parseColor("#A3A8B0"); mark = 0 }
-                else -> { fill = Color.WHITE; border = Color.parseColor("#E3E6EC"); ink = Color.parseColor("#A3A8B0"); mark = 0 }
-            }
-            val icon = object : View(this) {
-                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                override fun onDraw(canvas: android.graphics.Canvas) {
-                    val c = canvas; val save = c.save()
-                    val sc = fpx(iconPx / 32f)
-                    c.translate(width / 2f - 14f * sc, height / 2f - 16f * sc); c.scale(sc, sc)
-                    p.color = ink; p.style = android.graphics.Paint.Style.FILL
-                    val path = android.graphics.Path()
-                    if (fire) {
-                        path.moveTo(15f, 1f); path.cubicTo(18f, 8f, 27f, 13f, 26f, 21f)
-                        path.cubicTo(26f, 29f, 20f, 32f, 14f, 32f); path.cubicTo(7f, 32f, 2f, 28f, 2f, 21f)
-                        path.cubicTo(2f, 16f, 5f, 12f, 8f, 9f); path.cubicTo(8f, 14f, 10f, 16f, 12f, 17f)
-                        path.cubicTo(10f, 10f, 15f, 7f, 15f, 1f); path.close(); c.drawPath(path, p)
-                        if (on) { p.color = mark; val inner = android.graphics.Path()
-                            inner.moveTo(15f, 16f); inner.cubicTo(20f, 22f, 22f, 28f, 15f, 30f); inner.cubicTo(9f, 29f, 8f, 24f, 15f, 16f); c.drawPath(inner, p) }
-                    } else {
-                        path.moveTo(14f, 2f); path.lineTo(26f, 7f); path.lineTo(24f, 22f); path.quadTo(21f, 28f, 14f, 32f)
-                        path.quadTo(7f, 28f, 4f, 22f); path.lineTo(2f, 7f); path.close(); c.drawPath(path, p)
-                        if (on) {
-                            p.color = mark; p.style = android.graphics.Paint.Style.STROKE
-                            p.strokeWidth = 2.8f; p.strokeCap = android.graphics.Paint.Cap.ROUND
-                            c.drawLine(8f, 16f, 12f, 20f, p); c.drawLine(12f, 20f, 20f, 12f, p)
-                        }
-                    }
-                    c.restoreToCount(save)
-                }
-            }.apply {
-                background = pressable(round(fill, 18f, border, fpx(1.5f)), round(mixBlack(fill, .06f), 18f, border, fpx(1.5f)))
-                elevation = if (dark) 0f else fpx(3f)
-                alpha = if (busy) .45f else if (!live) .5f else 1f
-                contentDescription = if (fire) "Fireplace: ${if (ok) (if (active) "on" else "off") else if (busy) "updating" else "unavailable"}" else "Protect alarm: ${if (ok) state else if (busy) "updating" else "unavailable"}"
-                setOnLongClickListener { toast(contentDescription.toString()); true }
-                setOnClickListener {
-                    if (!ok) { toast(if (busy) "Updating…" else "Waiting for live Home Assistant status"); return@setOnClickListener }
-                    if (fire) setControl(key, !active)
-                    else {
-                        val want = !active
-                        confirm(if (want) "Arm the alarm?" else "Turn off the alarm?", if (want) "Turns on UniFi Protect Away mode." else "Disarms UniFi Protect.", if (want) "Arm" else "Turn off") { setControl(key, want) }
-                    }
-                }
-            }
-            val host = FrameLayout(this).apply { clipChildren = false; clipToPadding = false }
-            val th = maxOf(48, h); val tw = maxOf(48, w)
-            host.addView(icon, FrameLayout.LayoutParams(px(w), px(h), Gravity.CENTER))
-            host.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-                v.touchDelegate = android.view.TouchDelegate(android.graphics.Rect(0, 0, v.width, v.height), icon)
-            }
-            row.addView(host, lp(px(tw), px(th)).apply { if (!first) leftMargin = px(8) })
-            first = false
+    /** Fire / alarm ovals in the FAB row. Hidden with the camera (under night, glance, and overlays; gone when the FAB is hidden). */
+    private fun renderControls() {
+        if (!::fireFab.isInitialized) return
+        val showRow = ::fab.isInitialized && fab.visibility == View.VISIBLE
+        val camOn = showRow && camFab.visibility == View.VISIBLE
+        var end = if (camOn) 42 + 56 + 16 else 42
+        for ((key, btn) in listOf("alarm" to alarmFab, "fireplace" to fireFab)) {
+            val st = controls.optJSONObject(key)
+            if (!showRow || st == null) { btn.visibility = View.GONE; continue }
+            end += 56 + 16
+            (btn.layoutParams as FrameLayout.LayoutParams).apply { rightMargin = px(end); bottomMargin = px(57); btn.layoutParams = this }
+            btn.visibility = View.VISIBLE
+            styleControl(btn, key, st)
         }
-        return row
+    }
+    private fun styleControl(btn: FrameLayout, key: String, st: org.json.JSONObject) {
+        val fire = key == "fireplace"
+        val active = st.optBoolean(if (fire) "on" else "armed")
+        val state = st.optString("state", "unknown")
+        val fresh = System.currentTimeMillis() - controlsAt < 15_000
+        val busy = controlBusy.contains(key)
+        val live = fresh && st.optBoolean("ok")
+        val ok = live && !busy
+        val on = live && active
+        val soft = Style.cur == Style.SOFT
+        val fill: Int
+        val ink: Int
+        val mark: Int
+        when {
+            on && fire -> { fill = Color.parseColor("#FBE3CF"); ink = Color.parseColor("#E0763A"); mark = Color.parseColor("#FFD078") }
+            on -> { fill = Color.parseColor("#DCEFE2"); ink = Color.parseColor("#4E9A6A"); mark = Color.WHITE }
+            else -> { fill = if (soft) RailIcons.SEL else C.FAB; ink = Color.parseColor("#A3A8B0"); mark = 0 }
+        }
+        val icon = btn.getChildAt(0) as CtrlIcon
+        icon.lit = on; icon.ink = ink; icon.mark = mark; icon.invalidate()
+        btn.background = pressable(oval(fill), oval(mixBlack(fill, .06f)))
+        btn.elevation = if (soft) fpx(4f) else 0f
+        btn.alpha = if (busy) .45f else if (!live) .5f else 1f
+        btn.contentDescription = if (fire) "Fireplace: ${if (ok) (if (active) "on" else "off") else if (busy) "updating" else "unavailable"}" else "Protect alarm: ${if (ok) state else if (busy) "updating" else "unavailable"}"
+        btn.setOnLongClickListener { toast(btn.contentDescription.toString()); true }
+        btn.setOnClickListener {
+            if (!ok) { toast(if (busy) "Updating…" else "Waiting for live Home Assistant status"); return@setOnClickListener }
+            if (fire) setControl(key, !active)
+            else {
+                val want = !active
+                confirm(if (want) "Arm the alarm?" else "Turn off the alarm?", if (want) "Turns on UniFi Protect Away mode." else "Disarms UniFi Protect.", if (want) "Arm" else "Turn off") { setControl(key, want) }
+            }
+        }
     }
 
     private fun renderDoors() {
@@ -733,7 +708,7 @@ class MainActivity : Activity(), Host {
             pill.addView(text(if (open) "$name open ${doorAge(since)}" else "$name closed", if (dark) 22f else 15f, col, if (open) C.MED else C.REG))
             doorBox.addView(pill, lp(WRAP, px(if (dark) 48 else 36)).apply { topMargin = px(8) })
         }
-        if (controls.length() > 0) doorBox.addView(controlIcons(dark), lp(WRAP, WRAP).apply { topMargin = px(8) })
+        renderControls()
     }
 
     // ================================================================= reward progress
@@ -1586,7 +1561,7 @@ class MainActivity : Activity(), Host {
                 head("General")
                 row("Time zone", value(java.util.TimeZone.getDefault().getDisplayName(false, java.util.TimeZone.LONG).replace(" Standard", "")
                     .replace("Central Time", "Central Time"), false))
-                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility })
+                row("Floating Action Button (FAB)", sw("show_fab", true) { fab.visibility = if (prefs.getBoolean("show_fab", true) && page != "rewards") View.VISIBLE else View.GONE; camFab.visibility = if (BuildCfg.CAMERA_PKG.isEmpty()) View.GONE else fab.visibility; renderControls() })
                 row("Use 24-hour format", sw("h24", false) { Fmt.h24 = prefs.getBoolean("h24", false); chipCache.clear(); render(); updateClock() })
                 row("Date format", value("MM/DD/YYYY", false))
                 row("Color style", styleSeg { settings(sec) })
@@ -1802,4 +1777,36 @@ class MainActivity : Activity(), Host {
         (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+}
+
+/** Flame / shield glyph, scaled to about 45% of the 56px FAB diameter. */
+private class CtrlIcon(ctx: android.content.Context, val fire: Boolean) : android.view.View(ctx) {
+    var lit = false
+    var ink = 0
+    var mark = 0
+    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val c = canvas; val save = c.save()
+        val sc = fpx(56f * 0.45f / 32f)
+        c.translate(width / 2f - 14f * sc, height / 2f - 16f * sc); c.scale(sc, sc)
+        p.color = ink; p.style = android.graphics.Paint.Style.FILL
+        val path = android.graphics.Path()
+        if (fire) {
+            path.moveTo(15f, 1f); path.cubicTo(18f, 8f, 27f, 13f, 26f, 21f)
+            path.cubicTo(26f, 29f, 20f, 32f, 14f, 32f); path.cubicTo(7f, 32f, 2f, 28f, 2f, 21f)
+            path.cubicTo(2f, 16f, 5f, 12f, 8f, 9f); path.cubicTo(8f, 14f, 10f, 16f, 12f, 17f)
+            path.cubicTo(10f, 10f, 15f, 7f, 15f, 1f); path.close(); c.drawPath(path, p)
+            if (lit) { p.color = mark; val inner = android.graphics.Path()
+                inner.moveTo(15f, 16f); inner.cubicTo(20f, 22f, 22f, 28f, 15f, 30f); inner.cubicTo(9f, 29f, 8f, 24f, 15f, 16f); c.drawPath(inner, p) }
+        } else {
+            path.moveTo(14f, 2f); path.lineTo(26f, 7f); path.lineTo(24f, 22f); path.quadTo(21f, 28f, 14f, 32f)
+            path.quadTo(7f, 28f, 4f, 22f); path.lineTo(2f, 7f); path.close(); c.drawPath(path, p)
+            if (lit) {
+                p.color = mark; p.style = android.graphics.Paint.Style.STROKE
+                p.strokeWidth = 2.8f; p.strokeCap = android.graphics.Paint.Cap.ROUND
+                c.drawLine(8f, 16f, 12f, 20f, p); c.drawLine(12f, 20f, 20f, 12f, p)
+            }
+        }
+        c.restoreToCount(save)
+    }
 }
