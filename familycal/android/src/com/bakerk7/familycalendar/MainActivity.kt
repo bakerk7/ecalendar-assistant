@@ -56,6 +56,8 @@ class MainActivity : Activity(), Host {
     private var controls = JSONObject()
     private var controlsAt = 0L
     private val controlBusy = mutableSetOf<String>()
+    private val controlWant = HashMap<String, Boolean>()
+    private val controlWait = HashMap<String, Runnable>()
     private var doorsJson = 0
     private lateinit var doorBox: LinearLayout
     private var glance: FrameLayout? = null
@@ -592,26 +594,50 @@ class MainActivity : Activity(), Host {
         api.get("/api/doors", { txt ->
             try { val j = JSONObject(txt); val changed = txt.hashCode() != doorsJson || controlsAt == 0L; doorsJson = txt.hashCode()
                 doors = parseDoors(j.optJSONArray("doors")); controls = j.optJSONObject("controls") ?: JSONObject()
-                controlsAt = System.currentTimeMillis(); if (changed) renderDoors()
+                controlsAt = System.currentTimeMillis(); val settled = settleControlBusy(); if (changed || settled) renderDoors()
             } catch (_: Exception) {}
         }, { if (controlsAt != 0L) { controlsAt = 0L; doorsJson = 0; renderDoors() } })
         ui.postDelayed(this, 3_000) } }
     /** Door pills sit above ovl in z-order: hide them whenever any overlay (panel, details, settings, menu) is open. */
     private fun syncDoorVis() { if (::doorBox.isInitialized) doorBox.visibility = if (ovl.childCount > 0) View.INVISIBLE else View.VISIBLE }
     /** Explicit set-state calls, never blind toggle. No optimistic on/off rendering; HA is the source of truth. */
+    private fun controlReached(key: String, want: Boolean): Boolean {
+        val st = controls.optJSONObject(key) ?: return false
+        return st.optBoolean("ok") && st.optBoolean(if (key == "fireplace") "on" else "armed") == want
+    }
+    private fun finishControl(key: String) {
+        controlBusy.remove(key); controlWant.remove(key)
+        controlWait.remove(key)?.let { ui.removeCallbacks(it) }
+    }
+    private fun settleControlBusy(): Boolean {
+        var any = false
+        for (key in controlWant.keys.toList()) {
+            val want = controlWant[key] ?: continue
+            if (controlReached(key, want)) { finishControl(key); any = true }
+        }
+        return any
+    }
     private fun setControl(key: String, want: Boolean) {
         if (!controlBusy.add(key)) return
+        controlWant[key] = want
+        val wait = Runnable {
+            if (controlBusy.contains(key) && controlWant[key] == want) {
+                finishControl(key); renderDoors()
+                toast(if (key == "fireplace") "Fireplace didn't respond" else "Alarm didn't respond")
+            }
+        }
+        controlWait[key] = wait; ui.postDelayed(wait, 10_000)
         renderDoors()
         api.post("/api/controls/$key", JSONObject().put(if (key == "fireplace") "on" else "armed", want), { txt ->
-            controlBusy.remove(key)
             try { controls = JSONObject(txt).optJSONObject("controls") ?: controls; controlsAt = System.currentTimeMillis() } catch (_: Exception) {}
-            renderDoors(); toast(if (key == "fireplace") "Fireplace ${if (want) "on" else "off"} requested" else "${if (want) "Arm" else "Disarm"} requested")
-            // HA may take a moment to report the new state; the normal 3 s poll follows up.
-        }, { controlBusy.remove(key); controlsAt = 0L; renderDoors(); toast(it) })
+            if (controlReached(key, want)) finishControl(key)
+            renderDoors()
+        }, { finishControl(key); controlsAt = 0L; renderDoors(); toast(it) })
     }
 
     private fun controlIcons(dark: Boolean): View {
-        val row = hbox(this).apply { gravity = Gravity.END }
+        val row = hbox(this).apply { gravity = Gravity.END; clipChildren = false; clipToPadding = false }
+        var first = true
         for (key in listOf("fireplace", "alarm")) {
             val st = controls.optJSONObject(key) ?: continue
             val fire = key == "fireplace"
@@ -619,38 +645,55 @@ class MainActivity : Activity(), Host {
             val state = st.optString("state", "unknown")
             val fresh = System.currentTimeMillis() - controlsAt < 15_000
             val busy = controlBusy.contains(key)
-            val ok = fresh && st.optBoolean("ok") && !busy
-            val size = if (dark) 52 else 46
-            val tint = Color.parseColor(if (!ok) "#9298A2" else if (active) (if (fire) "#EA742E" else "#429C6A") else "#9298A2")
+            val live = fresh && st.optBoolean("ok")
+            val ok = live && !busy
+            val on = live && active
+            val h = if (dark) 48 else 36
+            val w = if (dark) 64 else 56
+            val iconPx = if (dark) 30f else 22f
+            val fill: Int
+            val border: Int
+            val ink: Int
+            val mark: Int
+            when {
+                on && fire && dark -> { fill = Color.parseColor("#2E2219"); border = Color.parseColor("#6A4426"); ink = Color.parseColor("#F08A45"); mark = Color.parseColor("#FFC861") }
+                on && fire -> { fill = Color.parseColor("#FBE3CF"); border = Color.parseColor("#F0C29C"); ink = Color.parseColor("#E0763A"); mark = Color.parseColor("#FFD078") }
+                on && dark -> { fill = Color.parseColor("#182A20"); border = Color.parseColor("#2E5A40"); ink = Color.parseColor("#34C77B"); mark = fill }
+                on -> { fill = Color.parseColor("#DCEFE2"); border = Color.parseColor("#B5DAC2"); ink = Color.parseColor("#4E9A6A"); mark = Color.WHITE }
+                dark -> { fill = Color.parseColor("#1C1F26"); border = Color.parseColor("#3A3F4A"); ink = Color.parseColor("#6B717C"); mark = 0 }
+                Style.cur == Style.SOFT -> { fill = Color.parseColor("#EFECE7"); border = Color.parseColor("#E0DBD3"); ink = Color.parseColor("#A3A8B0"); mark = 0 }
+                else -> { fill = Color.WHITE; border = Color.parseColor("#E3E6EC"); ink = Color.parseColor("#A3A8B0"); mark = 0 }
+            }
             val icon = object : View(this) {
                 val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
                 override fun onDraw(canvas: android.graphics.Canvas) {
-                    val c = canvas; val save = c.save(); c.translate(width / 2f - fpx(14f), height / 2f - fpx(16f)); c.scale(fpx(1f), fpx(1f))
-                    p.color = tint; p.style = android.graphics.Paint.Style.FILL
+                    val c = canvas; val save = c.save()
+                    val sc = fpx(iconPx / 32f)
+                    c.translate(width / 2f - 14f * sc, height / 2f - 16f * sc); c.scale(sc, sc)
+                    p.color = ink; p.style = android.graphics.Paint.Style.FILL
                     val path = android.graphics.Path()
                     if (fire) {
-                        // A single-color silhouette (not an emoji), so OFF really is a dim gray flame.
                         path.moveTo(15f, 1f); path.cubicTo(18f, 8f, 27f, 13f, 26f, 21f)
                         path.cubicTo(26f, 29f, 20f, 32f, 14f, 32f); path.cubicTo(7f, 32f, 2f, 28f, 2f, 21f)
                         path.cubicTo(2f, 16f, 5f, 12f, 8f, 9f); path.cubicTo(8f, 14f, 10f, 16f, 12f, 17f)
                         path.cubicTo(10f, 10f, 15f, 7f, 15f, 1f); path.close(); c.drawPath(path, p)
-                        if (active && ok) { p.color = Color.parseColor("#FFD078"); val inner = android.graphics.Path()
-                            inner.moveTo(15f, 16f); inner.cubicTo(20f, 22f, 22f, 28f, 15f, 30f); inner.cubicTo(9f, 29f, 8f, 24f, 15f, 16f); c.drawPath(inner,p) }
+                        if (on) { p.color = mark; val inner = android.graphics.Path()
+                            inner.moveTo(15f, 16f); inner.cubicTo(20f, 22f, 22f, 28f, 15f, 30f); inner.cubicTo(9f, 29f, 8f, 24f, 15f, 16f); c.drawPath(inner, p) }
                     } else {
                         path.moveTo(14f, 2f); path.lineTo(26f, 7f); path.lineTo(24f, 22f); path.quadTo(21f, 28f, 14f, 32f)
-                        path.quadTo(7f, 28f, 4f, 22f); path.lineTo(2f, 7f); path.close(); c.drawPath(path,p)
-                        p.color = if (dark) Color.parseColor("#1C1F26") else Color.WHITE
-                        p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 2.8f; p.strokeCap = android.graphics.Paint.Cap.ROUND
-                        if (active) { c.drawLine(8f,16f,12f,20f,p); c.drawLine(12f,20f,20f,12f,p) }
-                        else { c.drawLine(10f,13f,18f,21f,p); c.drawLine(18f,13f,10f,21f,p) }
+                        path.quadTo(7f, 28f, 4f, 22f); path.lineTo(2f, 7f); path.close(); c.drawPath(path, p)
+                        if (on) {
+                            p.color = mark; p.style = android.graphics.Paint.Style.STROKE
+                            p.strokeWidth = 2.8f; p.strokeCap = android.graphics.Paint.Cap.ROUND
+                            c.drawLine(8f, 16f, 12f, 20f, p); c.drawLine(12f, 20f, 20f, 12f, p)
+                        }
                     }
                     c.restoreToCount(save)
                 }
             }.apply {
-                background = if (dark) round(Color.parseColor("#1C1F26"), 18f, Color.parseColor("#3A3F4A"), fpx(1.5f))
-                    else round(if (Style.cur == Style.SOFT) Color.parseColor("#EFECE7") else Color.WHITE, 18f, Color.parseColor("#E0DBD3"), fpx(1.5f))
+                background = pressable(round(fill, 18f, border, fpx(1.5f)), round(mixBlack(fill, .06f), 18f, border, fpx(1.5f)))
                 elevation = if (dark) 0f else fpx(3f)
-                alpha = if (busy) .45f else 1f
+                alpha = if (busy) .45f else if (!live) .5f else 1f
                 contentDescription = if (fire) "Fireplace: ${if (ok) (if (active) "on" else "off") else if (busy) "updating" else "unavailable"}" else "Protect alarm: ${if (ok) state else if (busy) "updating" else "unavailable"}"
                 setOnLongClickListener { toast(contentDescription.toString()); true }
                 setOnClickListener {
@@ -658,11 +701,18 @@ class MainActivity : Activity(), Host {
                     if (fire) setControl(key, !active)
                     else {
                         val want = !active
-                        confirm(if (want) "Arm Protect?" else "Disarm Protect?", if (want) "Arm UniFi Protect in Away mode?" else "Disarm the UniFi Protect alarm?", if (want) "Arm" else "Disarm") { setControl(key, want) }
+                        confirm(if (want) "Arm the alarm?" else "Turn off the alarm?", if (want) "Turns on UniFi Protect Away mode." else "Disarms UniFi Protect.", if (want) "Arm" else "Turn off") { setControl(key, want) }
                     }
                 }
             }
-            row.addView(icon, lp(px(size), px(size)).apply { leftMargin = px(8) })
+            val host = FrameLayout(this).apply { clipChildren = false; clipToPadding = false }
+            val th = maxOf(48, h); val tw = maxOf(48, w)
+            host.addView(icon, FrameLayout.LayoutParams(px(w), px(h), Gravity.CENTER))
+            host.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                v.touchDelegate = android.view.TouchDelegate(android.graphics.Rect(0, 0, v.width, v.height), icon)
+            }
+            row.addView(host, lp(px(tw), px(th)).apply { if (!first) leftMargin = px(8) })
+            first = false
         }
         return row
     }
