@@ -53,6 +53,9 @@ class MainActivity : Activity(), Host {
     private var forcedEvening = false
     private var briState = -9f
     private var doors = listOf<Triple<String, Boolean, Long>>()     // name, open, since (millis)
+    private var controls = JSONObject()
+    private var controlsAt = 0L
+    private val controlBusy = mutableSetOf<String>()
     private var doorsJson = 0
     private lateinit var doorBox: LinearLayout
     private var glance: FrameLayout? = null
@@ -327,6 +330,9 @@ class MainActivity : Activity(), Host {
         weather = Parse.weather(j.optJSONObject("weather")) ?: weather
         toTag = j.optInt("to_tag")
         doors = parseDoors(j.optJSONArray("doors"))
+        controls = j.optJSONObject("controls") ?: JSONObject()
+        // Cached /api/home states are display-only: a live poll is required before controls are enabled.
+        controlsAt = 0L
         Rem.store(this, j.optJSONArray("reminders"))
         chipCache.clear()
     }
@@ -583,11 +589,84 @@ class MainActivity : Activity(), Host {
         Triple(o.optString("name"), o.optBoolean("open"), since) }.filter { d -> d.first.isNotEmpty() } } ?: emptyList()
     /** Live door status: tiny /api/doors poll every 3 s while the app is in front (helper caches HA for 1.5 s). */
     private val doorPoll = object : Runnable { override fun run() {
-        api.get("/api/doors", { txt -> if (txt.hashCode() != doorsJson) { doorsJson = txt.hashCode()
-            try { doors = parseDoors(JSONObject(txt).optJSONArray("doors")); renderDoors() } catch (_: Exception) {} } })
+        api.get("/api/doors", { txt ->
+            try { val j = JSONObject(txt); val changed = txt.hashCode() != doorsJson || controlsAt == 0L; doorsJson = txt.hashCode()
+                doors = parseDoors(j.optJSONArray("doors")); controls = j.optJSONObject("controls") ?: JSONObject()
+                controlsAt = System.currentTimeMillis(); if (changed) renderDoors()
+            } catch (_: Exception) {}
+        }, { if (controlsAt != 0L) { controlsAt = 0L; doorsJson = 0; renderDoors() } })
         ui.postDelayed(this, 3_000) } }
     /** Door pills sit above ovl in z-order: hide them whenever any overlay (panel, details, settings, menu) is open. */
     private fun syncDoorVis() { if (::doorBox.isInitialized) doorBox.visibility = if (ovl.childCount > 0) View.INVISIBLE else View.VISIBLE }
+    /** Explicit set-state calls, never blind toggle. No optimistic on/off rendering; HA is the source of truth. */
+    private fun setControl(key: String, want: Boolean) {
+        if (!controlBusy.add(key)) return
+        renderDoors()
+        api.post("/api/controls/$key", JSONObject().put(if (key == "fireplace") "on" else "armed", want), { txt ->
+            controlBusy.remove(key)
+            try { controls = JSONObject(txt).optJSONObject("controls") ?: controls; controlsAt = System.currentTimeMillis() } catch (_: Exception) {}
+            renderDoors(); toast(if (key == "fireplace") "Fireplace ${if (want) "on" else "off"} requested" else "${if (want) "Arm" else "Disarm"} requested")
+            // HA may take a moment to report the new state; the normal 3 s poll follows up.
+        }, { controlBusy.remove(key); controlsAt = 0L; renderDoors(); toast(it) })
+    }
+
+    private fun controlIcons(dark: Boolean): View {
+        val row = hbox(this).apply { gravity = Gravity.END }
+        for (key in listOf("fireplace", "alarm")) {
+            val st = controls.optJSONObject(key) ?: continue
+            val fire = key == "fireplace"
+            val active = st.optBoolean(if (fire) "on" else "armed")
+            val state = st.optString("state", "unknown")
+            val fresh = System.currentTimeMillis() - controlsAt < 15_000
+            val busy = controlBusy.contains(key)
+            val ok = fresh && st.optBoolean("ok") && !busy
+            val size = if (dark) 52 else 46
+            val tint = Color.parseColor(if (!ok) "#9298A2" else if (active) (if (fire) "#EA742E" else "#429C6A") else "#9298A2")
+            val icon = object : View(this) {
+                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                override fun onDraw(canvas: android.graphics.Canvas) {
+                    val c = canvas; val save = c.save(); c.translate(width / 2f - fpx(14f), height / 2f - fpx(16f)); c.scale(fpx(1f), fpx(1f))
+                    p.color = tint; p.style = android.graphics.Paint.Style.FILL
+                    val path = android.graphics.Path()
+                    if (fire) {
+                        // A single-color silhouette (not an emoji), so OFF really is a dim gray flame.
+                        path.moveTo(15f, 1f); path.cubicTo(18f, 8f, 27f, 13f, 26f, 21f)
+                        path.cubicTo(26f, 29f, 20f, 32f, 14f, 32f); path.cubicTo(7f, 32f, 2f, 28f, 2f, 21f)
+                        path.cubicTo(2f, 16f, 5f, 12f, 8f, 9f); path.cubicTo(8f, 14f, 10f, 16f, 12f, 17f)
+                        path.cubicTo(10f, 10f, 15f, 7f, 15f, 1f); path.close(); c.drawPath(path, p)
+                        if (active && ok) { p.color = Color.parseColor("#FFD078"); val inner = android.graphics.Path()
+                            inner.moveTo(15f, 16f); inner.cubicTo(20f, 22f, 22f, 28f, 15f, 30f); inner.cubicTo(9f, 29f, 8f, 24f, 15f, 16f); c.drawPath(inner,p) }
+                    } else {
+                        path.moveTo(14f, 2f); path.lineTo(26f, 7f); path.lineTo(24f, 22f); path.quadTo(21f, 28f, 14f, 32f)
+                        path.quadTo(7f, 28f, 4f, 22f); path.lineTo(2f, 7f); path.close(); c.drawPath(path,p)
+                        p.color = if (dark) Color.parseColor("#1C1F26") else Color.WHITE
+                        p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 2.8f; p.strokeCap = android.graphics.Paint.Cap.ROUND
+                        if (active) { c.drawLine(8f,16f,12f,20f,p); c.drawLine(12f,20f,20f,12f,p) }
+                        else { c.drawLine(10f,13f,18f,21f,p); c.drawLine(18f,13f,10f,21f,p) }
+                    }
+                    c.restoreToCount(save)
+                }
+            }.apply {
+                background = if (dark) round(Color.parseColor("#1C1F26"), 18f, Color.parseColor("#3A3F4A"), fpx(1.5f))
+                    else round(if (Style.cur == Style.SOFT) Color.parseColor("#EFECE7") else Color.WHITE, 18f, Color.parseColor("#E0DBD3"), fpx(1.5f))
+                elevation = if (dark) 0f else fpx(3f)
+                alpha = if (busy) .45f else 1f
+                contentDescription = if (fire) "Fireplace: ${if (ok) (if (active) "on" else "off") else if (busy) "updating" else "unavailable"}" else "Protect alarm: ${if (ok) state else if (busy) "updating" else "unavailable"}"
+                setOnLongClickListener { toast(contentDescription.toString()); true }
+                setOnClickListener {
+                    if (!ok) { toast(if (busy) "Updating…" else "Waiting for live Home Assistant status"); return@setOnClickListener }
+                    if (fire) setControl(key, !active)
+                    else {
+                        val want = !active
+                        confirm(if (want) "Arm Protect?" else "Disarm Protect?", if (want) "Arm UniFi Protect in Away mode?" else "Disarm the UniFi Protect alarm?", if (want) "Arm" else "Disarm") { setControl(key, want) }
+                    }
+                }
+            }
+            row.addView(icon, lp(px(size), px(size)).apply { leftMargin = px(8) })
+        }
+        return row
+    }
+
     private fun renderDoors() {
         if (!::doorBox.isInitialized) return
         syncDoorVis()
@@ -604,6 +683,7 @@ class MainActivity : Activity(), Host {
             pill.addView(text(if (open) "$name open ${doorAge(since)}" else "$name closed", if (dark) 22f else 15f, col, if (open) C.MED else C.REG))
             doorBox.addView(pill, lp(WRAP, px(if (dark) 48 else 36)).apply { topMargin = px(8) })
         }
+        if (controls.length() > 0) doorBox.addView(controlIcons(dark), lp(WRAP, WRAP).apply { topMargin = px(8) })
     }
 
     // ================================================================= reward progress

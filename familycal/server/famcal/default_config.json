@@ -155,5 +155,15 @@
         "entity": "binary_sensor.back_door_contact"
       }
     ]
+  },
+  "controls": {
+    "_comment": "Tablet icons next to the door pills. fireplace: HA switch/light (tap = on/off). alarm: HA alarm_control_panel (tap + confirm = arm/disarm; arm_mode away|home|night). Remove a key to hide it.",
+    "fireplace": {
+      "entity": "switch.living_room_fireplace"
+    },
+    "alarm": {
+      "entity": "alarm_control_panel.baker_udmpro_alarm_manager",
+      "arm_mode": "away"
+    }
   }
 }

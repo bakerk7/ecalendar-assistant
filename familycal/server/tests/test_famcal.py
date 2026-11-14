@@ -400,6 +400,35 @@ def test_doors_reads_ha_state(env, monkeypatch):
     assert s["alerts"][0]["name"] == "Deck" and s["alerts"][0]["open_min"] == 7
 
 
+def test_controls_fireplace_and_alarm(env, monkeypatch):
+    """Fireplace/alarm proxy: explicit services on configured entities only; HA is stubbed (nothing real is called)."""
+    svc, fx, c = env
+    from famcal import config
+    monkeypatch.setitem(config.get(), "controls", {"fireplace": {"entity": "switch.fp"},
+                                                  "alarm": {"entity": "alarm_control_panel.am", "arm_mode": "away"}})
+    from famcal.controls import Controls
+    calls, states = [], {"switch.fp": "off", "alarm_control_panel.am": "disarmed"}
+    def fake_ha(self, method, path, body=None):
+        if method == "GET":
+            return {"state": states[path.rsplit("/", 1)[1]]}
+        calls.append((path, body)); return []
+    monkeypatch.setattr(Controls, "_ha", fake_ha)
+    d = c.get("/api/doors", headers=H).json()["controls"]
+    assert d["fireplace"]["on"] is False and d["alarm"]["armed"] is False and d["alarm"]["ok"]
+    r = c.post("/api/controls/fireplace", headers=H, json={"on": True, "dry_run": True}).json()
+    assert r["call"] == {"domain": "switch", "service": "turn_on", "data": {"entity_id": "switch.fp"}} and calls == []
+    r = c.post("/api/controls/alarm", headers=H, json={"armed": False, "dry_run": True}).json()
+    assert r["call"]["service"] == "alarm_disarm" and calls == []
+    states["switch.fp"] = "on"
+    r = c.post("/api/controls/fireplace", headers=H, json={"on": False}).json()
+    assert calls == [("/api/services/switch/turn_off", {"entity_id": "switch.fp"})]
+    r = c.post("/api/controls/alarm", headers=H, json={"armed": True}).json()
+    assert calls[-1] == ("/api/services/alarm_control_panel/alarm_arm_away", {"entity_id": "alarm_control_panel.am"})
+    assert c.post("/api/controls/fireplace", headers=H, json={"on": "yes"}).status_code == 400
+    assert c.post("/api/controls/garage", headers=H, json={"on": True}).status_code == 404
+    assert "controls" in c.get("/api/home?start=2026-01-01&end=2026-01-02", headers=H).json()
+
+
 def test_reward_redeem_subtracts_stars(env):
     svc, fx, c = env
     r = c.post("/api/rewards", headers=H, json={"title": "Pick the movie", "emoji": "🎬", "cost": 20}).json()

@@ -12,6 +12,7 @@ from .db import DB, new_id, now
 from .sources import TZ, make_source
 from . import oauth
 from .doors import Doors
+from .controls import Controls
 
 log = logging.getLogger("famcal")
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -337,9 +338,37 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
     doors = Doors(ttl=1.5)  # app polls /api/doors every ~3 s; HA reads are 3 tiny GETs
     app.state.doors = doors
 
+    controls = Controls(ttl=1.5)
+    app.state.controls = controls
+
     @app.get("/api/doors", dependencies=A)
     def doors_status():
-        return doors.status()
+        # the tablet's 3 s door poll also carries the fireplace / alarm state (one request, one radio wakeup)
+        st = doors.status()
+        if controls.cfg():
+            st["controls"] = controls.status()
+        return st
+
+    @app.get("/api/controls", dependencies=A)
+    def controls_status():
+        return controls.status(fresh=True)
+
+    @app.post("/api/controls/{key}", dependencies=A)
+    def controls_set(key: str, body: dict = Body(...)):
+        """{"on": true|false} for fireplace, {"armed": true|false} for alarm; "dry_run": true returns the HA call only.
+        Explicit on/off + arm/disarm services on configured entities only (never a toggle)."""
+        want = body.get("on") if key == "fireplace" else body.get("armed") if key == "alarm" else None
+        if key not in controls.cfg():
+            raise HTTPException(404, "unknown control")
+        if not isinstance(want, bool):
+            raise HTTPException(400, "on/armed must be true/false")
+        try:
+            return controls.set(key, want, dry_run=bool(body.get("dry_run")))
+        except (KeyError, ValueError) as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            log.warning("control %s failed: %s", key, type(e).__name__)
+            raise HTTPException(502, "Home Assistant didn't respond")
 
     @app.post("/api/doors/fake", dependencies=A)
     def doors_fake(body: dict = Body(...)):
@@ -398,7 +427,8 @@ def create_app(svc: Optional[Service] = None, api_key: Optional[str] = None, dat
                                "writable": bool(c.get("writable", 1))} for c in svc.calendars()],
                 "rewards": rewards(), "lists": lists(), "weather": svc.weather(),
                 "to_tag": len(svc.to_tag(1000)), "server_time": now(),
-                "doors": doors.status()["doors"] if doors.cfg().get("sensors") else []}
+                "doors": doors.status()["doors"] if doors.cfg().get("sensors") else [],
+                "controls": controls.status() if controls.cfg() else {}}
 
     # ------------------------------------------------------------ Google OAuth (one-time)
     app.include_router(oauth.router(data_dir, A, svc))
